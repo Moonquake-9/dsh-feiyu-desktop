@@ -595,6 +595,12 @@ function Get-WorkArea {
   return $area
 }
 
+# 立绘四周本身是透明的：形象可见边缘离窗口边界还有一段距离。
+# 允许窗口越过工作区这么多，形象底部/右侧才能真正贴到屏幕边上。
+$script:PetInsets = @{ Left = 13.0; Right = 14.5; Top = 29.0; Bottom = 28.0 }
+
+function Get-PetInsets { return $script:PetInsets }
+
 function Render-Window($win, $path) {
   $dv = [System.Windows.Media.VisualTreeHelper]::GetDpi($win)
   $wDiu = if ($win.ActualWidth -gt 0) { $win.ActualWidth } else { $win.Content.ActualWidth }
@@ -638,10 +644,11 @@ function Load-Position {
       $o = (Get-Content -LiteralPath $script:WinFile -Raw -Encoding UTF8) | ConvertFrom-Json
       $wa = Get-WorkArea
       $l = [double]$o.left; $tp = [double]$o.top
-      if ($l -lt $wa.Left) { $l = $wa.Left + 8 }
-      if ($tp -lt $wa.Top) { $tp = $wa.Top + 8 }
-      if ($l + $pet.Width -gt $wa.Right) { $l = $wa.Right - $pet.Width - 8 }
-      if ($tp + $pet.Height -gt $wa.Bottom) { $tp = $wa.Bottom - $pet.Height - 8 }
+      $ins = Get-PetInsets
+      if ($l -lt $wa.Left - $ins.Left) { $l = $wa.Left - $ins.Left + 8 }
+      if ($tp -lt $wa.Top - $ins.Top) { $tp = $wa.Top - $ins.Top + 8 }
+      if ($l + $pet.Width -gt $wa.Right + $ins.Right) { $l = $wa.Right - $pet.Width + $ins.Right - 8 }
+      if ($tp + $pet.Height -gt $wa.Bottom + $ins.Bottom) { $tp = $wa.Bottom - $pet.Height + $ins.Bottom }
       $pet.Left = $l; $pet.Top = $tp
       return
     } catch { }
@@ -1087,10 +1094,11 @@ function Get-SnapTarget {
   $wa = [System.Windows.SystemParameters]::WorkArea
   $w = if ($pet.ActualWidth -gt 0) { $pet.ActualWidth } else { $pet.Width }
   $h = if ($pet.ActualHeight -gt 0) { $pet.ActualHeight } else { $pet.Height }
-  $minX = $wa.Left
-  $maxX = $wa.Right - $w
-  $minY = $wa.Top
-  $maxY = $wa.Bottom - $h
+  $ins = Get-PetInsets
+  $minX = $wa.Left - $ins.Left
+  $maxX = $wa.Right - $w + $ins.Right
+  $minY = $wa.Top - $ins.Top
+  $maxY = $wa.Bottom - $h + $ins.Bottom
   $x = [double]$pet.Left
   $y = [double]$pet.Top
   $s = 20.0
