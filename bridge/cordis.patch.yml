@@ -1,0 +1,23 @@
+# dsh-feiyu-bridge — bundle patch
+#
+# 给桌面挂件（feiyu-desktop）提供一条"不开窗口也能聊天"的本地通道：
+# 挂件把请求写成 JSON 文件，本插件在 Host 里用 ctx.llm 跑一次性模型调用，
+# 再把回复写回文件，挂件轮询读取。
+#
+# 为什么走文件而不是 HTTP：Host 的 webServer 是给页面用的（带浏览器会话鉴权），
+# 外部进程直接调用需要处理 token；文件桥不需要鉴权、不占端口、也方便调试。
+- insert:
+    - id: feiyu-bridge
+      name: dsh-feiyu-bridge
+      config:
+        intervalMs: 400
+        maxTokens: 600
+        temperature: 0.75
+        # 挂件是普通进程、受 DSH 沙箱约束（只能写 workspace），所以桥目录放工作区
+        dir: 'D:/Desktop/DSH/feiyu-desktop/bridge'
+        # 桌面挂件接管时，把应用右下角的挂饰藏掉，免得两个形象叠在一起
+        hideInAppWidget: true
+        # DSH 启动后自动把桌面挂件拉起来（挂件已在跑就跳过）
+        autoStartWidget: true
+        widgetVbs: 'D:/Desktop/DSH/feiyu-desktop/launch.vbs'
+        widgetPid: 'D:/Desktop/DSH/feiyu-desktop/widget.pid'

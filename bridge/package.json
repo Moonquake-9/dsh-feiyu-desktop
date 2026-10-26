@@ -1,0 +1,32 @@
+{
+    "name":  "dsh-feiyu-bridge",
+    "version":  "0.1.1",
+    "private":  true,
+    "description":  "File-bridge chat backend for the feiyu-mood desktop widget: turns plain JSON requests into one-shot model replies using the host\u0027s own LLM provider.",
+    "license":  "MIT",
+    "type":  "module",
+    "main":  "index.js",
+    "exports":  {
+                    ".":  "./index.js",
+                    "./package.json":  "./package.json"
+                },
+    "files":  [
+                  "index.js",
+                  "emotion.js",
+                  "memory.js",
+                  "cordis.patch.yml",
+                  "README.md"
+              ],
+    "keywords":  [
+                     "dsh",
+                     "dsh-plugin",
+                     "deepseek-harness",
+                     "pet",
+                     "chat"
+                 ],
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            }
+}
