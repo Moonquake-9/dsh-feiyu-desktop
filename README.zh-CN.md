@@ -12,6 +12,8 @@
   <img src="https://img.shields.io/badge/runtime-PowerShell%205.1%20%2B%20WPF-5391FE.svg" alt="PowerShell 5.1 + WPF">
 </p>
 
+如果这只小鱼让你的桌面热闹了一点，点个 ⭐ 能让更多人看到它。
+
 <p align="center">
   <img src="docs/preview-chat2.png" alt="桌面上的小鱼，正在对话" width="520">
   <img src="docs/preview-settings.png" alt="她的设置" width="360">

@@ -16,6 +16,8 @@ service.
   <img src="https://img.shields.io/badge/runtime-PowerShell%205.1%20%2B%20WPF-5391FE.svg" alt="PowerShell 5.1 + WPF">
 </p>
 
+If this project makes your desktop a little less lonely, a ⭐ helps other people find it.
+
 <p align="center">
   <img src="docs/preview-chat2.png" alt="Feiyu on the desktop, mid-conversation" width="520">
   <img src="docs/preview-settings.png" alt="Her settings window" width="360">
