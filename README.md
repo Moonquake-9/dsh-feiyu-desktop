@@ -1,4 +1,4 @@
-# Feiyu Desktop — a desktop companion for DeepSeek Harness
+﻿# Feiyu Desktop — a desktop companion for DeepSeek Harness
 
 A small, always-on-top whale girl that lives in the corner of your Windows desktop, mirrors the
 mood of the `dsh-feiyu-mood` plugin, and — this is the fun part — **talks to you without you opening
@@ -7,7 +7,19 @@ the DSH window**.
 Built with nothing but Windows PowerShell 5.1 + WPF. No installer, no Electron, no background
 service.
 
-![preview](docs/preview-chat2.png)
+<p align="center">
+  <a href="../../releases"><img src="https://img.shields.io/badge/release-v1.0.0-82A0FF.svg" alt="release v1.0.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4D6BFE.svg" alt="license MIT"></a>
+  <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-6C86FF.svg" alt="dsh-plugin topic"></a>
+  <a href="https://github.com/topics/desktop-pet"><img src="https://img.shields.io/badge/topic-desktop--pet-6C86FF.svg" alt="desktop-pet topic"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg" alt="Windows 10/11">
+  <img src="https://img.shields.io/badge/runtime-PowerShell%205.1%20%2B%20WPF-5391FE.svg" alt="PowerShell 5.1 + WPF">
+</p>
+
+<p align="center">
+  <img src="docs/preview-chat2.png" alt="Feiyu on the desktop, mid-conversation" width="520">
+  <img src="docs/preview-settings.png" alt="Her settings window" width="360">
+</p>
 
 ## Why a separate program
 
@@ -50,6 +62,9 @@ calls inside the DSH Host process — the pet never touches your conversation co
 - For chat: the `bridge/` plugin added to the same DSH profile
 
 ## Install
+
+Grab the prebuilt bundle from [Releases](../../releases) (`dsh-feiyu-desktop-v1.0.0.zip`), or clone the
+repo and follow the steps below (the zip is just this repo's `widget/` + `bridge/` folders).
 
 1. Copy `widget/` somewhere permanent, for example:
 
@@ -142,6 +157,18 @@ docs/                         preview images
   directory.
 - Chat text goes to the model provider configured in your DSH profile; nothing is sent anywhere else.
 - Memory is plain JSON on your disk (`bridge/memory.json`); delete it to forget everything.
+
+## Updating your copy
+
+The `widget/` and `bridge/` folders here are copies of the ones that actually run on the author's
+machine. After editing the live script, sync it into the repo and commit:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\sync-from-live.ps1
+```
+
+The helper keeps LF in git / CRLF on disk and re-adds the UTF-8 BOM that PowerShell 5.1 needs for
+the Chinese strings. Then commit in GitHub Desktop and press **Push origin**.
 
 ## Where this comes from — and what is ours
 

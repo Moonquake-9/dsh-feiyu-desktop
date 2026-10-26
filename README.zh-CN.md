@@ -1,9 +1,21 @@
-# 鱼的心情 · 桌面挂件
+﻿# 鱼的心情 · 桌面挂件
 
 把「鱼的心情」从 DSH 应用窗口里搬到桌面上：一只一直待在最上层的小鲸鱼（约 156px，占桌面右下角一小块），
 心情值来自 `dsh-feiyu-mood` 插件写的状态文件，跟插件同源、实时刷新。**不开 DSH 窗口也能和她说话**。
 
-![预览](docs/preview-chat2.png)
+<p align="center">
+  <a href="../../releases"><img src="https://img.shields.io/badge/release-v1.0.0-82A0FF.svg" alt="release v1.0.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4D6BFE.svg" alt="license MIT"></a>
+  <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-6C86FF.svg" alt="dsh-plugin topic"></a>
+  <a href="https://github.com/topics/desktop-pet"><img src="https://img.shields.io/badge/topic-desktop--pet-6C86FF.svg" alt="desktop-pet topic"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg" alt="Windows 10/11">
+  <img src="https://img.shields.io/badge/runtime-PowerShell%205.1%20%2B%20WPF-5391FE.svg" alt="PowerShell 5.1 + WPF">
+</p>
+
+<p align="center">
+  <img src="docs/preview-chat2.png" alt="桌面上的小鱼，正在对话" width="520">
+  <img src="docs/preview-settings.png" alt="她的设置" width="360">
+</p>
 
 本仓库基于 [`dsh-feiyu-mood`](https://github.com/Yuuyuko-uu/dsh-feiyu-mood)（作者 Yuuyuko-uu，MIT）：
 心情系统与角色立绘来自那个插件，这里是“把同一个她从应用窗口里拎到桌面上”的桌面端实现。
@@ -16,6 +28,9 @@
 - 想聊天就再加一个 `bridge/` 插件到同一个 profile
 
 ## 安装
+
+不想自己装环境的话，直接去 [Releases](../../releases) 下 `dsh-feiyu-desktop-v1.0.0.zip`（就是本仓库的
+`widget/` + `bridge/` 两个目录打包），解压后按下面的步骤装即可。
 
 1. 把 `widget/` 复制到固定的位置，例如 `D:\Desktop\feiyu-desktop`；
 2. 改 `bridge/cordis.patch.yml` 里的三个路径（`dir` / `widgetVbs` / `widgetPid`）指向该目录，
@@ -90,6 +105,17 @@ widget/pet-settings.json      她的设置
 bridge/                       Cordis 插件：文件桥 + 情绪 + 记忆
 docs/                         预览图
 ```
+
+## 改了之后怎么同步
+
+仓库里的 `widget/`、`bridge/` 是实际运行那份的拷贝。改完本机脚本后，用仓库自带的同步脚本把它抄回来：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\sync-from-live.ps1
+```
+
+脚本会处理换行（git 里 LF、磁盘上 CRLF）并补回 PowerShell 5.1 读中文所必需的 UTF-8 BOM。
+然后在 GitHub Desktop 里提交、点 **Push origin** 即可。
 
 ## 这个东西是在谁的基础上做的
 
