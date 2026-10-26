@@ -38,7 +38,8 @@ calls inside the DSH Host process — the pet never touches your conversation co
   seconds, a springy hop on click. Blinking is intentionally off: the upstream plugin ships no
   closed-eye frame that matches the open-eye sprites (see `CREDITS.md`).
 - **Chat without DSH in the foreground** — write a line, the bridge runs one model call and streams
-  the answer back into her speech bubble, one character at a time.
+  the answer back into her speech bubble, one character at a time. Closing the input row
+  (click anywhere else) drops the bubble back down onto her head instead of leaving it floating.
 - **Emotion memory** — persistent affection/trust/energy that drift over time, plus a hot layer
   (last N turns) and a warm layer (model-compressed notes every M turns). No cold diary yet.
 - **Her own settings window** (right-click → settings): memory on/off, retain/compress cadence,

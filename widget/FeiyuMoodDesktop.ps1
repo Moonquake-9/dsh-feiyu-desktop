@@ -5,7 +5,8 @@
   [switch]$Autostart,
   [switch]$RemoveShortcut,
   [string]$Say = '',
-  [switch]$OpenChat
+  [switch]$OpenChat,
+  [string]$BubbleProbe = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -181,7 +182,7 @@ if (-not $TestShot -and -not $Render) {
 }
 
 # ---------- single instance ----------
-if (-not $TestShot -and -not $Render -and (Test-Path $script:PidFile)) {
+if (-not $TestShot -and -not $Render -and -not $BubbleProbe -and (Test-Path $script:PidFile)) {
   $oldPid = 0
   [void][int]::TryParse((Get-Content $script:PidFile -Raw).Trim(), [ref]$oldPid)
   if ($oldPid -gt 0) {
@@ -927,6 +928,50 @@ function Set-BubbleText($text) {
   Place-Bubble
 }
 
+$script:BubbleGlideTimer = $null
+$script:BubbleGlideFrom = $null
+$script:BubbleGlideTo = $null
+$script:BubbleGlideStep = 0
+
+function Stop-BubbleGlide {
+  if ($script:BubbleGlideTimer) {
+    $script:BubbleGlideTimer.Stop()
+    $script:BubbleGlideTimer = $null
+  }
+}
+
+function Start-BubbleGlide($fromX, $fromY, $toX, $toY) {
+  # 输入条收起/展开时，气泡在两个位置之间滑动，别瞬间跳上去或吊在半空
+  if (-not $script:Bubble.IsVisible) { return }
+  if ($script:BubbleGlideTimer) { $script:BubbleGlideTimer.Stop() }
+  $script:BubbleGlideFrom = @([double]$fromX, [double]$fromY)
+  $script:BubbleGlideTo = @([double]$toX, [double]$toY)
+  $script:BubbleGlideStep = 0
+  $script:Bubble.Left = $fromX
+  $script:Bubble.Top = $fromY
+  $t = New-Object System.Windows.Threading.DispatcherTimer
+  $t.Interval = [TimeSpan]::FromMilliseconds(15)
+  $t.Add_Tick({
+    if (-not $script:BubbleGlideTimer) { return }
+    $script:BubbleGlideStep = $script:BubbleGlideStep + 1
+    $n = 16
+    $p = [Math]::Min(1.0, $script:BubbleGlideStep / [double]$n)
+    $e = 1.0 - [Math]::Pow(1.0 - $p, 3.0)      # cubic ease-out
+    $fx = $script:BubbleGlideFrom[0]; $fy = $script:BubbleGlideFrom[1]
+    $tx = $script:BubbleGlideTo[0];   $ty = $script:BubbleGlideTo[1]
+    $script:Bubble.Left = $fx + ($tx - $fx) * $e
+    $script:Bubble.Top  = $fy + ($ty - $fy) * $e
+    if ($p -ge 1.0) {
+      $script:BubbleGlideTimer.Stop()
+      $script:BubbleGlideTimer = $null
+      $script:Bubble.Left = $tx
+      $script:Bubble.Top  = $ty
+    }
+  })
+  $script:BubbleGlideTimer = $t
+  $t.Start()
+}
+
 function Place-Stacks {
   # 布局约定：输入条永远贴在形象头顶（打开时位置固定，不随气泡跳动）；
   # 回复气泡叠在输入条上方；输入条收起时，气泡直接贴回形象头顶。
@@ -1109,14 +1154,22 @@ function Place-Chat { Place-Stacks }
 
 function Toggle-Chat {
   BootLog ('toggle-chat open=' + $script:ChatOpen)
+  Stop-BubbleGlide
+  $oldX = $script:Bubble.Left
+  $oldY = $script:Bubble.Top
+  $hadBubble = $script:Bubble.IsVisible
   if ($script:ChatOpen) {
     $script:Chat.Hide()
     $script:ChatOpen = $false
+    Place-Stacks
+    # 收起输入条后，气泡从原来吊在半空的位置落回她头顶
+    if ($hadBubble) { Start-BubbleGlide $oldX $oldY $script:Bubble.Left $script:Bubble.Top }
     return
   }
   $script:ChatOpen = $true
   $script:Chat.Show()
-  Place-Chat
+  Place-Stacks
+  if ($hadBubble) { Start-BubbleGlide $oldX $oldY $script:Bubble.Left $script:Bubble.Top }
   $script:ChatInput.Focus() | Out-Null
 }
 
@@ -1687,7 +1740,7 @@ $script:Timer.Add_Tick({
 
 # ---------- app ----------
 $app = New-Object System.Windows.Application
-$app.Add_DispatcherUnhandledException({ param($s, $e) try { BootLog ('unhandled: ' + $e.Exception.GetType().Name + ': ' + $e.Exception.Message) } catch { } })
+$app.Add_DispatcherUnhandledException({ param($s, $e) try { BootLog ('unhandled: ' + $e.Exception.GetType().Name + ': ' + $e.Exception.Message + ' | ' + $e.Exception.StackTrace) } catch { } })
 # windows are created before the Application object, so WPF's window list stays empty;
 # OnLastWindowClose would shut the app down whenever any dialog closes.
 $app.ShutdownMode = 'OnExplicitShutdown'
