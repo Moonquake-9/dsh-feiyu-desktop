@@ -44,7 +44,6 @@ $script:DeskLink = Join-Path ([Environment]::GetFolderPath('Desktop')) '鱼的�
 $script:StartLink = Join-Path ([Environment]::GetFolderPath('Startup')) '鱼的心情.lnk'
 
 $DIM_KEYS   = @('happy','calm','sweet','heartache','worry','sad','jealous')
-$DIM_LABELS = @{ happy='开心'; calm='踏实'; sweet='甜蜜'; heartache='心疼'; worry='担心'; sad='难过'; jealous='吃醋' }
 $DIM_COLORS = @{ happy='#5DDC8A'; calm='#7AAADC'; sweet='#E28FC0'; heartache='#E0B070'; worry='#E8A25B'; sad='#7A96C8'; jealous='#C88FDC' }
 
 # ---------- her settings (pet-settings.json) ----------
@@ -56,6 +55,7 @@ $script:Settings = [pscustomobject]@{
   refreshMs     = 1200
   autostart     = $true
   model         = ''
+  lang          = 'auto'
 }
 
 function Read-PetSettings {
@@ -63,7 +63,7 @@ function Read-PetSettings {
     if (-not (Test-Path -LiteralPath $script:SettingsPath)) { return }
     $raw = Get-Content -LiteralPath $script:SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($null -eq $raw) { return }
-    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model')) {
+    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model', 'lang')) {
       if ($null -ne $raw.$k) { $script:Settings.$k = $raw.$k }
     }
     if ($null -ne $raw.memory) {
@@ -88,6 +88,7 @@ function Save-PetSettings {
     refreshMs     = [int]$script:Settings.refreshMs
     autostart     = [bool]$script:Settings.autostart
     model         = [string]$script:Settings.model
+    lang          = [string]$script:Settings.lang
   }
   $json = $obj | ConvertTo-Json -Depth 6
   [System.IO.File]::WriteAllText($script:SettingsPath, $json, (New-Object System.Text.UTF8Encoding($false)))
@@ -191,6 +192,94 @@ if (-not $TestShot -and -not $Render -and (Test-Path $script:PidFile)) {
 
 # ---------- data ----------
 Read-PetSettings
+
+# ---------- interface language ----------
+$script:Lang = 'zh'
+$script:I18N = [ordered]@{
+  '鱼的心情 · 桌面挂饰' = 'Feiyu · desktop widget'
+  '鱼的心情' = 'Her mood'
+  '她的设置…' = 'Her settings…'
+  '她的设置' = 'Her settings'
+  '和她说句话' = 'Say something'
+  '鱼的状态' = 'Her status'
+  '只影响桌面上的小鱼；DSH 那边不受影响。' = 'Only affects the little fish on your desktop; nothing inside DSH changes.'
+  '让她记住我们聊过的事（温层压缩）' = 'Let her remember what we talked about (warm-layer memory)'
+  '让她知道我在工作区忙什么（读最近一次摘要，默认关）' = 'Let her know what I am busy with (uses the last summary)'
+  '保留最近' = 'Keep last'
+  '轮；每' = 'turns; compress every'
+  '轮压缩一次' = 'turns'
+  '开机时自动出现' = 'Show up at startup'
+  '英文界面（English interface）' = 'English interface'
+  '气泡停留' = 'Bubble stays'
+  '秒；心情刷新' = 's; mood refresh'
+  '毫秒' = 'ms'
+  '聊天用的模型（留空 = 自动挑一个）' = 'Model for chatting (leave empty = auto pick one)'
+  '取消' = 'Cancel'
+  '保存' = 'Save'
+  '打开 / 收起面板' = 'Open / close panel'
+  '重置位置' = 'Reset position'
+  '开机自动启动' = 'Launch at startup'
+  '打开面板' = 'Open panel'
+  '把小鱼叫出来' = 'Show the little fish'
+  '重新启动挂件' = 'Restart widget'
+  '退出' = 'Quit'
+  '小鱼在托盘里' = 'The little fish is in the tray'
+  '双击托盘图标打开面板；右键有菜单，可以叫她出来或退出。' = 'Double-click the tray icon to open the panel; right-click for the menu.'
+  '发送' = 'Send'
+  '七根情绪' = 'Seven moods'
+  '最近的心情' = 'Recent moods'
+  '还没有判断过心情' = 'No mood reading yet'
+  '（还没有记录）' = '(nothing recorded yet)'
+  '还没开始' = 'Not yet'
+  '等第一轮聊天' = 'waiting for the first chat'
+  '数据：' = 'Data: '
+  '写不进聊天通道：' = 'Cannot write to the chat bridge: '
+  '……（DSH 好像没在后台跑，我收不到消息）' = '… (DSH does not seem to be running, so I get no messages)'
+  '……（她没说话）' = '… (she said nothing)'
+  '……（没等到回复，DSH 可能刚关掉）' = '… (no reply — DSH may have just closed)'
+  '没连上模型（' = 'could not reach a model: '
+  '今天也要好好休息呀～' = 'Rest well today too~'
+  '你在干嘛呀' = 'What are you doing?'
+  '这是测试回复，看看会不会压到输入框。' = 'Test reply — check it does not cover the input bar.'
+  '欢喜' = 'Delighted'
+  '开心' = 'Happy'
+  '一般' = 'Okay'
+  '心疼' = 'Aching'
+  '难过' = 'Sad'
+  '踏实' = 'Steady'
+  '甜蜜' = 'Sweet'
+  '担心' = 'Anxious'
+  '吃醋' = 'Jealous'
+  '还不太熟' = 'a stranger'
+  '渐渐熟了' = 'getting familiar'
+  '很亲近' = 'close'
+  '黏着你' = 'clingy'
+}
+function L([string]$s) {
+  if ($script:Lang -ne 'en') { return $s }
+  if ($script:I18N.Contains($s)) { return $script:I18N[$s] }
+  return $s
+}
+function T-Xaml([string]$x) {
+  if ($script:Lang -ne 'en') { return $x }
+  $keys = @($script:I18N.Keys) | Sort-Object -Property Length -Descending
+  foreach ($k in $keys) { $x = $x.Replace($k, $script:I18N[$k]) }
+  return $x
+}
+if ($script:Settings.lang -eq 'en') { $script:Lang = 'en' }
+elseif ($script:Settings.lang -eq 'zh') { $script:Lang = 'zh' }
+else {
+  try {
+    $uiLang = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName
+    if ($uiLang -and $uiLang -ne 'zh') { $script:Lang = 'en' }
+  } catch { }
+}
+$script:DIM_LABELS = if ($script:Lang -eq 'en') {
+  @{ happy='Happy'; calm='Steady'; sweet='Sweet'; heartache='Aching'; worry='Anxious'; sad='Down'; jealous='Jealous' }
+} else {
+  @{ happy='开心'; calm='踏实'; sweet='甜蜜'; heartache='心疼'; worry='担心'; sad='难过'; jealous='吃醋' }
+}
+
 function Get-Entry {
   if (-not (Test-Path $script:StateFile)) { return $null }
   try {
@@ -219,11 +308,11 @@ function Get-Entry {
 }
 
 function Get-FaceInfo([int]$v) {
-  if ($v -ge 80) { return @{ File = 'face-great.png'; Label = '欢喜'; Color = '#5DDC8A' } }
-  if ($v -ge 62) { return @{ File = 'face-good.png';  Label = '开心'; Color = '#7DDBA0' } }
-  if ($v -ge 42) { return @{ File = 'face-ok.png';    Label = '一般'; Color = '#9AA0A6' } }
-  if ($v -ge 25) { return @{ File = 'face-worry.png'; Label = '心疼'; Color = '#E8A25B' } }
-  return @{ File = 'face-sad.png'; Label = '难过'; Color = '#7A96C8' }
+  if ($v -ge 80) { return @{ File = 'face-great.png'; Label = (L '欢喜'); Color = '#5DDC8A' } }
+  if ($v -ge 62) { return @{ File = 'face-good.png';  Label = (L '开心'); Color = '#7DDBA0' } }
+  if ($v -ge 42) { return @{ File = 'face-ok.png';    Label = (L '一般'); Color = '#9AA0A6' } }
+  if ($v -ge 25) { return @{ File = 'face-worry.png'; Label = (L '心疼'); Color = '#E8A25B' } }
+  return @{ File = 'face-sad.png'; Label = (L '难过'); Color = '#7A96C8' }
 }
 
 # ---------- windows ----------
@@ -277,8 +366,8 @@ $panelXaml = @'
 </Window>
 '@
 
-$pet = [Windows.Markup.XamlReader]::Parse($petXaml)
-$panel = [Windows.Markup.XamlReader]::Parse($panelXaml)
+$pet = [Windows.Markup.XamlReader]::Parse((T-Xaml $petXaml))
+$panel = [Windows.Markup.XamlReader]::Parse((T-Xaml $panelXaml))
 $script:PetImg = $pet.FindName('Pet')
 $script:PetGhost = $pet.FindName('PetGhost')
 $script:PetGScale = $pet.FindName('PetGScale')
@@ -343,15 +432,15 @@ $statusXaml = @'
 </Window>
 '@
 
-$bubble = [Windows.Markup.XamlReader]::Parse($bubbleXaml)
-$chat = [Windows.Markup.XamlReader]::Parse($chatXaml)
+$bubble = [Windows.Markup.XamlReader]::Parse((T-Xaml $bubbleXaml))
+$chat = [Windows.Markup.XamlReader]::Parse((T-Xaml $chatXaml))
 $script:Bubble = $bubble
 $script:BubText = $bubble.FindName('BubText')
 $script:Chat = $chat
 $script:ChatInput = $chat.FindName('ChatInput')
 $script:ChatSend = $chat.FindName('ChatSend')
 $script:ChatClose = $chat.FindName('ChatClose')
-$script:Status = [Windows.Markup.XamlReader]::Parse($statusXaml)
+$script:Status = [Windows.Markup.XamlReader]::Parse((T-Xaml $statusXaml))
 $script:StatusText = $script:Status.FindName('StatusText')
 $script:StatusCard = $script:Status.FindName('StatusCard')
 $script:PetScale = $pet.FindName('PetScale')
@@ -418,12 +507,13 @@ $dimsGrid = New-Object System.Windows.Controls.StackPanel
 $script:DimRows = @{}
 foreach ($k in $DIM_KEYS) {
   $row = New-Object System.Windows.Controls.Grid
-  foreach ($w in @('36','1*','32')) {
+  $labelW = if ($script:Lang -eq 'en') { '66' } else { '36' }
+  foreach ($w in @($labelW,'1*','32')) {
     $cd = New-Object System.Windows.Controls.ColumnDefinition
     if ($w -eq '1*') { $cd.Width = New-Object System.Windows.GridLength 1, 'Star' } else { $cd.Width = [System.Windows.GridLength]::new([double]$w) }
     $row.ColumnDefinitions.Add($cd)
   }
-  $lab = New-Text $DIM_LABELS[$k] 12 '#9AA0A6'
+  $lab = New-Text $script:DIM_LABELS[$k] 12 '#9AA0A6'
   $lab.VerticalAlignment = 'Center'
   [System.Windows.Controls.Grid]::SetColumn($lab, 0)
   $track = New-Object System.Windows.Controls.Border
@@ -448,7 +538,7 @@ foreach ($k in $DIM_KEYS) {
   $dimsGrid.Children.Add($row) | Out-Null
   $script:DimRows[$k] = @{ Fill = $fill; Val = $val; Track = $trackGrid }
 }
-$dimsHead = New-Text '七根情绪' 12 '#C9CDD3' $true
+$dimsHead = New-Text (L '七根情绪') 12 '#C9CDD3' $true
 $dimsHead.Margin = '0,6,0,4'
 $script:Body.Children.Add($dimsHead) | Out-Null
 $script:Body.Children.Add($dimsGrid) | Out-Null
@@ -458,7 +548,7 @@ $sep.Height = 1; $sep.Background = (New-Object System.Windows.Media.BrushConvert
 $sep.Margin = '0,12,0,8'
 $script:Body.Children.Add($sep) | Out-Null
 
-$tlHead = New-Text '最近的心情' 12 '#C9CDD3' $true
+$tlHead = New-Text (L '最近的心情') 12 '#C9CDD3' $true
 $tlHead.Margin = '0,0,0,4'
 $script:Body.Children.Add($tlHead) | Out-Null
 $script:TlPanel = New-Object System.Windows.Controls.StackPanel
@@ -483,10 +573,10 @@ function Set-ImageSource($img, $path) {
 function Update-Ui {
   $data = Get-Entry
   if (-not $data) {
-    $script:PillText.Text = '还没开始'
+    $script:PillText.Text = (L '还没开始')
     Set-ImageSource $script:PetImg (Join-Path $script:Assets 'face-ok.png')
     $script:BigText.Text = '—'
-    $script:SmallText.Text = '等第一轮聊天'
+    $script:SmallText.Text = (L '等第一轮聊天')
     return
   }
   $e = $data.Entry
@@ -524,7 +614,7 @@ function Update-Ui {
   $script:SmallText.Text = $script:SmallText.Text + ' · ' + $rel
   $reason = ''
   if ($e.lastReason) { $reason = [string]$e.lastReason }
-  $script:Reason.Text = if ($reason) { $reason } else { '还没有判断过心情' }
+  $script:Reason.Text = if ($reason) { $reason } else { (L '还没有判断过心情') }
   foreach ($k in $DIM_KEYS) {
     $v = 0
     try { $v = [double]$e.dims.$k } catch { }
@@ -539,13 +629,15 @@ function Update-Ui {
   # timeline
   $script:TlPanel.Children.Clear()
   if ($emo.updatedAt -gt 0) {
-    $hi = New-Text ('亲密度 {0} · 精力 {1} · 关系 {2}' -f [int]$emo.affection, [int]$emo.energy, $rel) 11.5 '#9FB4D8'
+    $hiFmt = if ($script:Lang -eq 'en') { 'Closeness {0} · Energy {1} · Bond: {2}' } else { '亲密度 {0} · 精力 {1} · 关系 {2}' }
+    $hi = New-Text ($hiFmt -f [int]$emo.affection, [int]$emo.energy, $rel) 11.5 '#9FB4D8'
     $hi.Margin = '0,0,0,3'
     $script:TlPanel.Children.Add($hi) | Out-Null
     $last = $null
     try { $last = @($emo.memories) | Select-Object -Last 1 } catch { }
     if ($last) {
-      $mem = New-Text ('上次你说：“' + [string]$last.user + '”') 11 '#8C93A0'
+      $memTxt = if ($script:Lang -eq 'en') { 'Last you said: "' + [string]$last.user + '"' } else { '上次你说：“' + [string]$last.user + '”' }
+      $mem = New-Text $memTxt 11 '#8C93A0'
       $mem.TextTrimming = 'CharacterEllipsis'
       $mem.Margin = '0,0,0,5'
       $script:TlPanel.Children.Add($mem) | Out-Null
@@ -554,7 +646,7 @@ function Update-Ui {
   $tl = @()
   try { $tl = @($e.timeline) } catch { }
   if ($tl.Count -eq 0) {
-    $empty = New-Text '（还没有记录）' 12 '#7A8088'
+    $empty = New-Text (L '（还没有记录）') 12 '#7A8088'
     $script:TlPanel.Children.Add($empty) | Out-Null
   } else {
     $take = @($tl | Select-Object -Last 5)
@@ -585,7 +677,7 @@ function Update-Ui {
       $script:TlPanel.Children.Add($line) | Out-Null
     }
   }
-  $script:Foot.Text = '数据：' + $script:StateFile + ' · ' + (Get-Date).ToString('HH:mm:ss')
+  $script:Foot.Text = (L '数据：') + $script:StateFile + ' · ' + (Get-Date).ToString('HH:mm:ss')
   $script:Body.Children | Out-Null
 }
 
@@ -926,6 +1018,16 @@ $script:Lines = @{
   sleepy = @('好困…眼睛要睁不开了','让我靠一会儿…','（打了个小哈欠）','困到说不出话了…')
   clingy = @('你又半天不理我了','在干嘛呀，看看我嘛','我就赖在你桌面上了','点点我嘛')
 }
+if ($script:Lang -eq 'en') {
+  $script:Lines = @{
+    idle   = @('Hm?', 'What are you looking at?', 'Shall we take a break?', 'I am right here', '(tilts her head)')
+    happy  = @('Feeling good today~', 'Talk to me for a while?', 'Hehe')
+    low    = @('Are you okay?', 'You look a bit tired', 'Have some water')
+    sleepy = @('So sleepy… my eyes are closing', 'Let me lean on you for a bit…', '(small yawn)', 'Too sleepy to talk…')
+    clingy = @('You ignored me for ages', 'What are you doing? Look at me', 'I am staying on your desktop', 'Poke me already')
+  }
+}
+
 
 function Get-MoodSnapshot {
   $mood = 0; $reason = ''
@@ -976,11 +1078,11 @@ function Get-Emotion {
 
 function Get-RelationLabel($rel) {
   switch ([string]$rel) {
-    'stranger' { return '还不太熟' }
-    'familiar' { return '渐渐熟了' }
-    'close' { return '很亲近' }
-    'clingy' { return '黏着你' }
-    default { return '还不太熟' }
+    'stranger' { return (L '还不太熟') }
+    'familiar' { return (L '渐渐熟了') }
+    'close' { return (L '很亲近') }
+    'clingy' { return (L '黏着你') }
+    default { return (L '还不太熟') }
   }
 }
 
@@ -1007,7 +1109,7 @@ function Send-Chat {
   $id = 'w' + [DateTime]::UtcNow.Ticks.ToString()
   $script:ReplyId = $id
   $req = [ordered]@{
-    id = $id; text = $text; mood = $snap.mood; dims = $snap.dims; reason = $snap.reason; lang = 'zh'
+    id = $id; text = $text; mood = $snap.mood; dims = $snap.dims; reason = $snap.reason; lang = $script:Lang
   }
   try {
     New-Item -ItemType Directory -Force -Path (Join-Path $script:BridgeDir 'inbox') | Out-Null
@@ -1015,12 +1117,12 @@ function Send-Chat {
     $json = $req | ConvertTo-Json -Depth 5 -Compress
     [System.IO.File]::WriteAllText((Join-Path $script:BridgeDir ('inbox\' + $id + '.json')), $json, (New-Object System.Text.UTF8Encoding($false)))
   } catch {
-    Show-Bubble ('写不进聊天通道：' + $_.Exception.Message) 8
+    Show-Bubble ((L '写不进聊天通道：') + $_.Exception.Message) 8
     return
   }
   $alive = Read-BridgeAlive
   if (-not $alive -or $alive.age -gt 10) {
-    Show-Bubble '……（DSH 好像没在后台跑，我收不到消息）' 7
+    Show-Bubble (L '……（DSH 好像没在后台跑，我收不到消息）') 7
     return
   }
   Show-Bubble '…' 0
@@ -1058,15 +1160,15 @@ function Wait-Reply($id) {
           $script:ReplyTimer.Stop()
           $script:FaceLockUntil = [DateTime]::UtcNow.AddMilliseconds(2200)
           Update-Ui
-          if (-not $txt -and $j.error) { Show-Bubble ('没连上模型（' + $j.error + '）') 8 }
+          if (-not $txt -and $j.error) { Show-Bubble ((L '没连上模型（') + $j.error + ')') 8 }
           elseif ($txt) { Hide-BubbleLater 18 }
-          else { Show-Bubble '……（她没说话）' 6 }
+          else { Show-Bubble (L '……（她没说话）') 6 }
         }
       }
     } elseif ($script:ReplyTicks -gt 90) {
       $script:ReplyTimer.Stop()
       Update-Ui
-      Show-Bubble '……（没等到回复，DSH 可能刚关掉）' 8
+      Show-Bubble (L '……（没等到回复，DSH 可能刚关掉）') 8
     }
   })
   $script:ReplyTimer.Start()
@@ -1338,6 +1440,7 @@ $settingsXaml = @'
 
       <CheckBox x:Name="OptWorkspace" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,10,0,0" Content="让她知道我在工作区忙什么（读最近一次摘要，默认关）"/>
       <CheckBox x:Name="OptAutostart" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="开机时自动出现"/>
+      <CheckBox x:Name="OptEnglish" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="英文界面（English interface）"/>
 
       <Grid Margin="0,10,0,0">
         <Grid.ColumnDefinitions>
@@ -1364,11 +1467,13 @@ $settingsXaml = @'
 '@
 
 function New-SettingsWindow {
-  $w = [System.Windows.Markup.XamlReader]::Parse($settingsXaml)
+  $w = [System.Windows.Markup.XamlReader]::Parse((T-Xaml $settingsXaml))
+  if ($script:Lang -eq 'en') { $w.Width = 486 }
   $s = $script:Settings
   $w.FindName('OptMemory').IsChecked     = [bool]$s.memory.enabled
   $w.FindName('OptWorkspace').IsChecked  = [bool]$s.knowWorkspace
   $w.FindName('OptAutostart').IsChecked  = [bool]$s.autostart
+  $w.FindName('OptEnglish').IsChecked    = [bool]($script:Lang -eq 'en')
   $w.FindName('NumKeep').Text            = [string]$s.memory.keepTurns
   $w.FindName('NumEvery').Text           = [string]$s.memory.compressEvery
   $w.FindName('NumBubble').Text          = [string]$s.bubbleSeconds
@@ -1391,6 +1496,7 @@ function New-SettingsWindow {
     $script:Settings.bubbleSeconds        = & $toInt $w.FindName('NumBubble').Text 6 1 30
     $script:Settings.refreshMs            = & $toInt $w.FindName('NumRefresh').Text 1200 400 10000
     $script:Settings.model                = [string]$w.FindName('ModelBox').Text
+    $script:Settings.lang                 = if ($w.FindName('OptEnglish').IsChecked) { 'en' } else { 'zh' }
     Save-PetSettings
     Apply-PetSettings
     $w.Close()
@@ -1408,10 +1514,10 @@ function Show-Settings {
 
 $menu = New-Object System.Windows.Controls.ContextMenu
 $miToggle = New-Object System.Windows.Controls.MenuItem
-$miToggle.Header = '打开 / 收起面板'
+$miToggle.Header = (L '打开 / 收起面板')
 $miToggle.Add_Click({ Toggle-Panel })
 $miReset = New-Object System.Windows.Controls.MenuItem
-$miReset.Header = '重置位置'
+$miReset.Header = (L '重置位置')
 $miReset.Add_Click({
   $wa = Get-WorkArea
   $pet.Left = $wa.Right - $pet.Width - 24
@@ -1419,7 +1525,7 @@ $miReset.Add_Click({
   Save-Position; Place-Panel
 })
 $miStart = New-Object System.Windows.Controls.MenuItem
-$miStart.Header = '开机自动启动'
+$miStart.Header = (L '开机自动启动')
 $miStart.IsCheckable = $true
 $miStart.IsChecked = (Test-Path $script:StartLink)
 $miStart.Add_Click({
@@ -1435,7 +1541,7 @@ $miStart.Add_Click({
   $miStart.IsChecked = (Test-Path $script:StartLink)
 })
 $miQuit = New-Object System.Windows.Controls.MenuItem
-$miQuit.Header = '退出'
+$miQuit.Header = (L '退出')
 $miQuit.Add_Click({
   Stop-Tray
   Save-Position
@@ -1444,10 +1550,10 @@ $miQuit.Add_Click({
 })
 $menu.Items.Add($miToggle) | Out-Null
 $miChat = New-Object System.Windows.Controls.MenuItem
-$miChat.Header = '和她说句话'
+$miChat.Header = (L '和她说句话')
 $miChat.Add_Click({ Toggle-Chat })
   $miSettings = New-Object System.Windows.Controls.MenuItem
-  $miSettings.Header = '她的设置…'
+  $miSettings.Header = (L '她的设置…')
   $miSettings.Add_Click({ Show-Settings })
   [void]$menu.Items.Add($miSettings)
 $menu.Items.Add($miChat) | Out-Null
@@ -1468,17 +1574,17 @@ function Start-Tray {
     $icoPath = Join-Path $script:Root 'feiyu.ico'
     if (-not (Test-Path -LiteralPath $icoPath)) { New-IconFromPng (Join-Path $script:Assets 'feiyu.png') $icoPath }
     $ni.Icon = New-Object System.Drawing.Icon $icoPath
-    $ni.Text = '鱼的心情 · 桌面挂饰'
+    $ni.Text = (L '鱼的心情 · 桌面挂饰')
     $ni.Visible = $true
 
     $tray = New-Object System.Windows.Forms.ContextMenuStrip
-    $iPanel = New-Object System.Windows.Forms.ToolStripMenuItem '打开面板'
+    $iPanel = New-Object System.Windows.Forms.ToolStripMenuItem (L '打开面板')
     $iPanel.Add_Click({ $pet.Show(); $pet.Activate(); if (-not $script:PanelOpen) { Toggle-Panel } })
-    $iChat = New-Object System.Windows.Forms.ToolStripMenuItem '和她说句话'
+    $iChat = New-Object System.Windows.Forms.ToolStripMenuItem (L '和她说句话')
     $iChat.Add_Click({ $pet.Show(); $pet.Activate(); if (-not $script:ChatOpen) { Toggle-Chat } })
-    $iShow = New-Object System.Windows.Forms.ToolStripMenuItem '把小鱼叫出来'
+    $iShow = New-Object System.Windows.Forms.ToolStripMenuItem (L '把小鱼叫出来')
     $iShow.Add_Click({ $pet.Show(); $pet.Activate(); [void]$pet.Focus() })
-    $iRestart = New-Object System.Windows.Forms.ToolStripMenuItem '重新启动挂件'
+    $iRestart = New-Object System.Windows.Forms.ToolStripMenuItem (L '重新启动挂件')
     $iRestart.Add_Click({
       try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -1493,7 +1599,7 @@ function Start-Tray {
       $panel.Close(); $pet.Close()
       [System.Windows.Application]::Current.Shutdown()
     })
-    $iQuit = New-Object System.Windows.Forms.ToolStripMenuItem '退出'
+    $iQuit = New-Object System.Windows.Forms.ToolStripMenuItem (L '退出')
     $iQuit.Add_Click({
       Save-Position
       $panel.Close(); $pet.Close()
@@ -1508,7 +1614,7 @@ function Start-Tray {
     $ni.ContextMenuStrip = $tray
     $ni.Add_MouseDoubleClick({ $pet.Show(); $pet.Activate(); if (-not $script:PanelOpen) { Toggle-Panel } })
     $script:TrayIcon = $ni
-    try { $ni.ShowBalloonTip(3200, '小鱼在托盘里', '双击托盘图标打开面板；右键有菜单，可以叫她出来或退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { }
+    try { $ni.ShowBalloonTip(3200, (L '小鱼在托盘里'), (L '双击托盘图标打开面板；右键有菜单，可以叫她出来或退出。'), [System.Windows.Forms.ToolTipIcon]::Info) } catch { }
     BootLog 'tray icon ready'
   } catch { BootLog ('tray fail: ' + $_.Exception.Message) }
 }
@@ -1612,21 +1718,21 @@ if ($Render) {
     Set-PetTransform
 
     # 气泡与聊天输入条：离屏排版后单独出图，方便看效果
-    $script:BubText.Text = '今天也要好好休息呀～'
+    $script:BubText.Text = (L '今天也要好好休息呀～')
     $bc = $script:Bubble.Content
     $bc.Measure([System.Windows.Size]::new(300, [double]::PositiveInfinity))
     $bc.Arrange([System.Windows.Rect]::new(0, 0, 300, $bc.DesiredSize.Height))
     $bc.UpdateLayout()
     Render-Window $script:Bubble ($Render + '_bubble.png')
 
-    $script:ChatInput.Text = '你在干嘛呀'
+    $script:ChatInput.Text = (L '你在干嘛呀')
     $cc = $script:Chat.Content
     $cc.Measure([System.Windows.Size]::new([double]$script:Chat.Width, [double]::PositiveInfinity))
     $cc.Arrange([System.Windows.Rect]::new(0, 0, [double]$script:Chat.Width, $cc.DesiredSize.Height))
     $cc.UpdateLayout()
     Render-Window $script:Chat ($Render + '_chat.png')
 
-    $script:StatusText.Text = '开心 · 70'
+    $script:StatusText.Text = ((L '开心') + ' · 70')
     $script:Status.Show()
     Fit-Status
     $sc = $script:Status.Content
@@ -1675,7 +1781,7 @@ if ($Render) {
 }
 try { Set-Content -LiteralPath $script:PidFile -Value ([string]$PID) -Encoding ASCII; BootLog ('pid written ' + $script:PidFile) } catch { BootLog ('pid fail: ' + $_.Exception.Message) }
 $pet.Show()
-if ($OpenChat) { Toggle-Chat; Show-Bubble '这是测试回复，看看会不会压到输入框。' 0 }
+if ($OpenChat) { Toggle-Chat; Show-Bubble (L '这是测试回复，看看会不会压到输入框。') 0 }
 Place-Panel
 [void]$app.Run()
 BootLog 'BOOTLOG exit'

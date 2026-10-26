@@ -30,6 +30,9 @@ calls inside the DSH Host process — the pet never touches your conversation co
 - **Her own settings window** (right-click → settings): memory on/off, retain/compress cadence,
   “know what I'm busy with”, autostart, bubble seconds, refresh interval, model override.
   Saved to `widget/pet-settings.json`; both the widget and the bridge read it live.
+- **English interface** — her settings window has an “English interface” checkbox that flips every
+  label (panel, menus, tray, balloon, chat bar, idle lines) between 中文 and English. The same switch is
+  `lang` in `widget/pet-settings.json` (`"auto"` / `"zh"` / `"en"`); `auto` follows the Windows UI language.
 - **Edge snapping** — drop her within 20 px of a screen edge and she glides into place (120 ms
   ease-out).
 - **Fullscreen auto-hide** — when a real fullscreen window covers the monitor (video, game,
@@ -167,7 +170,6 @@ Please treat this repository as a starting point, not a finished product:
   attribution to the upstream project and the artist.
 - **Issues and PRs are welcome.** Good first ideas we would genuinely like help with:
   - a proper set of closed-eye frames for the five expressions (the reason blinking is disabled now);
-  - English UI strings (the widget UI is still Chinese);
   - macOS / Linux desktop ports;
   - a cold-layer diary for long-term memory;
   - more idle animations, petting/feeding interactions, sound.
