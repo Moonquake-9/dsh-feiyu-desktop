@@ -770,6 +770,25 @@ $script:GazeT = 0.0
 $script:GazeDur = 2.4
 $script:GazeWait = 5.5
 
+$script:FacingX = 1
+
+function Update-PetFacing {
+  # 形象朝哪边：主屏右半边保持原样，左半边整体左右镜像（以形象中心判断，跨屏时按所在屏幕算）
+  try {
+    $cx = $pet.Left + $pet.Width / 2
+    $cy = $pet.Top + $pet.Height / 2
+    $scr = [System.Windows.Forms.Screen]::FromPoint((New-Object System.Drawing.Point([int]$cx, [int]$cy)))
+    if (-not $scr) { $scr = [System.Windows.Forms.Screen]::PrimaryScreen }
+    $wa = $scr.WorkingArea
+    $want = if ($cx -lt ($wa.Left + $wa.Width / 2.0)) { -1 } else { 1 }
+    if ($want -ne $script:FacingX) {
+      $script:FacingX = $want
+      BootLog ("facing: mirror=" + ($want -lt 0) + " x=" + [int]$cx)
+      Set-PetTransform
+    }
+  } catch { }
+}
+
 function Set-PetTransform {
   # 呼吸/摇摆都以下盘（脚的着地点）为支点：只做缩放和微角度，不上下位移，
   # 否则整只画会被“抬起来”，看着像腾空。
@@ -805,12 +824,12 @@ function Set-PetTransform {
     $sy = $sy * (1.0 - 0.030 * $gs)
     $rot = $rot - 1.2 * $gs
   }
-  $script:PetScale.ScaleX = $sx
+  $script:PetScale.ScaleX = $sx * $script:FacingX
   $script:PetScale.ScaleY = $sy
   $script:PetRotate.Angle = $rot
   $script:PetShift.Y = $shift
   # 叠层跟着一起动，否则眨眼时会和本体错位
-  $script:PetGScale.ScaleX = $sx
+  $script:PetGScale.ScaleX = $sx * $script:FacingX
   $script:PetGScale.ScaleY = $sy
   $script:PetGRotate.Angle = $rot
   $script:PetGShift.Y = $shift
@@ -1432,7 +1451,7 @@ $script:ChatInput.Add_KeyDown({
   }
 })
 
-$pet.Add_LocationChanged({ Place-Panel; Place-Bubble; Place-Chat })
+$pet.Add_LocationChanged({ Place-Panel; Place-Bubble; Place-Chat; Update-PetFacing })
 
 $settingsXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1675,6 +1694,7 @@ $app.ShutdownMode = 'OnExplicitShutdown'
 
 $pet.Add_Loaded({
   Load-Position
+  Update-PetFacing
   Update-Ui
   Start-Anim
   Start-Tray
