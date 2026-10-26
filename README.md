@@ -140,6 +140,42 @@ docs/                         preview images
 - Chat text goes to the model provider configured in your DSH profile; nothing is sent anywhere else.
 - Memory is plain JSON on your disk (`bridge/memory.json`); delete it to forget everything.
 
+## Where this comes from — and what is ours
+
+This project is a **fork-and-extend of someone else's work**, and we want that to be obvious before
+anything else.
+
+**Standing on:** [`dsh-feiyu-mood`](https://github.com/Yuuyuko-uu/dsh-feiyu-mood) by
+[Yuuyuko-uu](https://github.com/Yuuyuko-uu) (MIT license). From that project we take:
+
+- the character 「小鱼 / 肥鱼」 and the five expression illustrations in `widget/assets/`;
+- the mood model itself (seven emotions, decay, the state file this widget reads);
+- the idea of a small companion living in the corner of the UI.
+
+If you reuse the artwork or the mood system, **credit that project too** — it is the foundation.
+
+**Added here:** the standalone WPF desktop widget (`widget/`), the file-bridge Cordis plugin
+(`bridge/`) that allows chatting without opening DSH, the emotion/relationship layer, the hot-and-warm
+memory compression, the settings window, edge snapping, fullscreen auto-hide, tray/watchdog and
+system-wide packaging.
+
+## Build on it — suggestions are welcome
+
+Please treat this repository as a starting point, not a finished product:
+
+- **Fork it, hack it, publish your own version.** MIT license, no permission needed — just keep the
+  attribution to the upstream project and the artist.
+- **Issues and PRs are welcome.** Good first ideas we would genuinely like help with:
+  - a proper set of closed-eye frames for the five expressions (the reason blinking is disabled now);
+  - English UI strings (the widget UI is still Chinese);
+  - macOS / Linux desktop ports;
+  - a cold-layer diary for long-term memory;
+  - more idle animations, petting/feeding interactions, sound.
+- **Be kind to the original author.** If our changes are useful upstream, open an issue there too
+  instead of only forking silently.
+- If you improve the artwork or the mood model, consider sending it to `dsh-feiyu-mood` first —
+  that is where the character lives.
+
 ## Credits & license
 
 Character art, the mood system and the `dsh-feiyu-mood` plugin are by
