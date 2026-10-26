@@ -1267,6 +1267,16 @@ public static class FgWin {
   [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
   [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
   [DllImport("user32.dll")] public static extern IntPtr GetDesktopWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern IntPtr FindWindow(string cls, string win);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+  [DllImport("user32.dll", CharSet = CharSet.Auto)]
+  public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+  public static string ClassName(IntPtr hwnd) {
+    var sb = new System.Text.StringBuilder(256);
+    GetClassName(hwnd, sb, 256);
+    return sb.ToString();
+  }
   public static bool IsFullscreen(IntPtr hwnd) {
     if (hwnd == IntPtr.Zero) return false;
     if (hwnd == GetDesktopWindow()) return false;
@@ -1311,9 +1321,20 @@ function Show-PetAll {
 function Update-FullscreenGuard {
   try {
     if (-not $script:HideOnFullscreen) { return }
+    if ($script:SettingsWin) { return }   # never hide while her settings dialog is open
     $fg = [FgWin]::GetForegroundWindow()
     if ($fg -eq [IntPtr]::Zero) { return }
-    foreach ($w in @($pet, $panel, $script:Bubble, $script:Chat, $script:Status)) {
+    $cls = ''
+    try { $cls = [FgWin]::ClassName($fg) } catch { }
+    if ($cls -eq 'Progman' -or $cls -eq 'WorkerW' -or $cls -eq 'Shell_TrayWnd' -or
+        $cls -eq 'Shell_SecondaryTrayWnd' -or $cls -eq 'Windows.UI.Core.CoreWindow') {
+      # desktop / taskbar / shell surface is not a fullscreen app - just bring her back
+      if ($script:PetHidden) { Show-PetAll }
+      return
+    }
+    $known = @($pet, $panel, $script:Bubble, $script:Chat, $script:Status)
+    if ($script:SettingsWin) { $known += $script:SettingsWin }
+    foreach ($w in $known) {
       if ($null -eq $w) { continue }
       try {
         if ([System.Windows.Interop.WindowInteropHelper]::new($w).Handle -eq $fg) {
@@ -1331,7 +1352,6 @@ function Update-FullscreenGuard {
 }
 
 
-# ---------- interactions ----------
 # 用 按下/移动/抬起 三段判断：只有真的拖动了才进 DragMove，否则当成一次点击。
 $script:DragStart = $null
 $script:DidDrag = $false
@@ -1479,7 +1499,7 @@ function New-SettingsWindow {
   $w.FindName('NumBubble').Text          = [string]$s.bubbleSeconds
   $w.FindName('NumRefresh').Text         = [string]$s.refreshMs
   $w.FindName('ModelBox').Text           = [string]$s.model
-  $w.FindName('BtnCancel').Add_Click({ $script:SettingsWin.Close() })
+  $w.FindName('BtnCancel').Add_Click({ BootLog 'settings: cancel'; $script:SettingsWin.Close() })
   $w.FindName('BtnSave').Add_Click({
     $toInt = { param($t, $d, $min, $max)
       $n = 0
@@ -1497,6 +1517,7 @@ function New-SettingsWindow {
     $script:Settings.refreshMs            = & $toInt $w.FindName('NumRefresh').Text 1200 400 10000
     $script:Settings.model                = [string]$w.FindName('ModelBox').Text
     $script:Settings.lang                 = if ($w.FindName('OptEnglish').IsChecked) { 'en' } else { 'zh' }
+    BootLog 'settings: save'
     Save-PetSettings
     Apply-PetSettings
     $w.Close()
@@ -1506,10 +1527,26 @@ function New-SettingsWindow {
 }
 
 function Show-Settings {
+  BootLog 'settings: open'
   $w = New-SettingsWindow
+  try { $w.Owner = $pet } catch { }
   $w.Left = $pet.Left + ($pet.Width - $w.Width) / 2
   $w.Top  = [Math]::Max(20, $pet.Top - 360)
-  $w.ShowDialog() | Out-Null
+  try { $w.ShowDialog() | Out-Null
+  } catch {
+    BootLog ('settings: dialog error ' + $_.Exception.Message)
+  } finally {
+    BootLog 'settings: closed'
+    $script:SettingsWin = $null
+    # the modal dialog can leave the layered window without a visual - force a repaint
+    $script:PetHidden = $false
+    try { $pet.Show() } catch { }
+    try { $pet.Topmost = $true } catch { }
+    try { $pet.InvalidateVisual(); $pet.UpdateLayout() } catch { }
+    try { $status.InvalidateVisual() } catch { }
+    Place-Stacks
+    Place-Status
+  }
 }
 
 $menu = New-Object System.Windows.Controls.ContextMenu
@@ -1554,7 +1591,7 @@ $miChat.Header = (L '和她说句话')
 $miChat.Add_Click({ Toggle-Chat })
   $miSettings = New-Object System.Windows.Controls.MenuItem
   $miSettings.Header = (L '她的设置…')
-  $miSettings.Add_Click({ Show-Settings })
+  $miSettings.Add_Click({ $app.Dispatcher.BeginInvoke([Action]{ Show-Settings }) | Out-Null })
   [void]$menu.Items.Add($miSettings)
 $menu.Items.Add($miChat) | Out-Null
 $menu.Items.Add($miReset) | Out-Null
@@ -1564,8 +1601,6 @@ $menu.Items.Add((New-Object System.Windows.Controls.Separator)) | Out-Null
 $menu.Items.Add($miQuit) | Out-Null
 $pet.ContextMenu = $menu
 
-# ---------- tray icon ----------
-# 挂件被误关/被回收时，从托盘能重新拉起来；也能直接退出。
 function Start-Tray {
   try {
     Add-Type -AssemblyName System.Windows.Forms
@@ -1633,7 +1668,10 @@ $script:Timer.Add_Tick({
 
 # ---------- app ----------
 $app = New-Object System.Windows.Application
-$app.ShutdownMode = 'OnLastWindowClose'
+$app.Add_DispatcherUnhandledException({ param($s, $e) try { BootLog ('unhandled: ' + $e.Exception.GetType().Name + ': ' + $e.Exception.Message) } catch { } })
+# windows are created before the Application object, so WPF's window list stays empty;
+# OnLastWindowClose would shut the app down whenever any dialog closes.
+$app.ShutdownMode = 'OnExplicitShutdown'
 
 $pet.Add_Loaded({
   Load-Position
@@ -1662,7 +1700,7 @@ $pet.Add_Loaded({
   }
 })
 
-$pet.Add_Closed({ Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { } })
+$pet.Add_Closed({ Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
 
 $panel.Add_Closed({ })
 
