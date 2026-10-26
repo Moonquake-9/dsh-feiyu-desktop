@@ -44,6 +44,8 @@ calls inside the DSH Host process — the pet never touches your conversation co
   (last N turns) and a warm layer (model-compressed notes every M turns). No cold diary yet.
 - **Her own settings window** (right-click → settings): memory on/off, retain/compress cadence,
   “know what I'm busy with”, autostart, bubble seconds, refresh interval, model override.
+  The footer of that window shows the version and build number of the copy you are running
+  (`v1.0.0 · build 13 · 2026-10-27`), and the tray tooltip carries the same string.
   Saved to `widget/pet-settings.json`; both the widget and the bridge read it live.
 - **English interface** — her settings window has an “English interface” checkbox that flips every
   label (panel, menus, tray, balloon, chat bar, idle lines) between 中文 and English. The same switch is

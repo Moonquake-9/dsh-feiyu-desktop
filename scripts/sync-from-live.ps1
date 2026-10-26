@@ -36,6 +36,7 @@ Write-Host 'widget/'
 Copy-Text  (Join-Path $WidgetDir 'FeiyuMoodDesktop.ps1') (Join-Path $repo 'widget\FeiyuMoodDesktop.ps1') -Bom
 Copy-Text  (Join-Path $WidgetDir 'launch.vbs')           (Join-Path $repo 'widget\launch.vbs')
 Copy-Text  (Join-Path $WidgetDir 'pet-settings.json')    (Join-Path $repo 'widget\pet-settings.json')
+Copy-Text  (Join-Path $WidgetDir 'version.json')         (Join-Path $repo 'widget\version.json')
 foreach ($img in 'feiyu.png', 'face-great.png', 'face-good.png', 'face-ok.png', 'face-worry.png', 'face-sad.png') {
     Copy-Binary (Join-Path $WidgetDir "assets\$img") (Join-Path $repo "widget\assets\$img")
 }

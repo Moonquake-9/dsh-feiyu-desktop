@@ -5,8 +5,7 @@
   [switch]$Autostart,
   [switch]$RemoveShortcut,
   [string]$Say = '',
-  [switch]$OpenChat,
-  [string]$BubbleProbe = ''
+  [switch]$OpenChat
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +17,26 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 
 $script:Root      = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# 版本信息：由 scripts/sync-from-live.ps1 旁边的 version.json 提供，读不到就用内置默认
+$script:AppVersion = '1.0.0'
+$script:AppBuild   = 0
+$script:AppDate    = ''
+try {
+  $vf = Join-Path $script:Root 'version.json'
+  if (Test-Path $vf) {
+    $vj = Get-Content -LiteralPath $vf -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($vj.version) { $script:AppVersion = [string]$vj.version }
+    if ($vj.build)   { $script:AppBuild   = [int]$vj.build }
+    if ($vj.date)    { $script:AppDate    = [string]$vj.date }
+  }
+} catch { }
+function Get-VersionLine {
+  if ($script:AppBuild -gt 0) {
+    return ('v{0} · build {1} · {2}' -f $script:AppVersion, $script:AppBuild, $script:AppDate)
+  }
+  return ('v{0}' -f $script:AppVersion)
+}
 $script:Assets    = Join-Path $script:Root 'assets'
 $script:WinFile   = Join-Path $script:Root 'window.json'
 $script:PidFile   = Join-Path $script:Root 'widget.pid'
@@ -1549,6 +1568,8 @@ $settingsXaml = @'
       <TextBlock Text="聊天用的模型（留空 = 自动挑一个）" FontFamily="Microsoft YaHei" FontSize="11" Foreground="#8FA6C8" Margin="0,12,0,4"/>
       <TextBox x:Name="ModelBox" FontFamily="Microsoft YaHei" FontSize="11.5" Padding="6,4" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5"/>
 
+      <TextBlock x:Name="VerText" Text="" FontFamily="Consolas" FontSize="10.5" Foreground="#7388A8" Margin="0,10,0,0"/>
+
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
         <Button x:Name="BtnCancel" Content="取消" Width="66" Height="26" Margin="0,0,8,0" FontFamily="Microsoft YaHei" FontSize="12" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#D6E1F2"/>
         <Button x:Name="BtnSave" Content="保存" Width="66" Height="26" FontFamily="Microsoft YaHei" FontSize="12" Background="#82A0FF" BorderBrush="#B4C8FF" Foreground="#0B1220"/>
@@ -1571,6 +1592,7 @@ function New-SettingsWindow {
   $w.FindName('NumBubble').Text          = [string]$s.bubbleSeconds
   $w.FindName('NumRefresh').Text         = [string]$s.refreshMs
   $w.FindName('ModelBox').Text           = [string]$s.model
+  try { $w.FindName('VerText').Text = (Get-VersionLine) } catch { }
   $w.FindName('BtnCancel').Add_Click({ BootLog 'settings: cancel'; $script:SettingsWin.Close() })
   $w.FindName('BtnSave').Add_Click({
     $toInt = { param($t, $d, $min, $max)
@@ -1681,7 +1703,7 @@ function Start-Tray {
     $icoPath = Join-Path $script:Root 'feiyu.ico'
     if (-not (Test-Path -LiteralPath $icoPath)) { New-IconFromPng (Join-Path $script:Assets 'feiyu.png') $icoPath }
     $ni.Icon = New-Object System.Drawing.Icon $icoPath
-    $ni.Text = (L '鱼的心情 · 桌面挂饰')
+    $ni.Text = ((L '鱼的心情 · 桌面挂饰') + ' · ' + (Get-VersionLine))
     $ni.Visible = $true
 
     $tray = New-Object System.Windows.Forms.ContextMenuStrip
