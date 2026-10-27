@@ -50,6 +50,7 @@ calls inside the DSH Host process — the pet never touches your conversation co
 - **English interface** — her settings window has an “English interface” checkbox that flips every
   label (panel, menus, tray, balloon, chat bar, idle lines) between 中文 and English. The same switch is
   `lang` in `widget/pet-settings.json` (`"auto"` / `"zh"` / `"en"`); `auto` follows the Windows UI language.
+  Changing the language restarts the widget automatically, so every label switches in one go.
 
 ![Switching to the English interface](docs/preview-settings-language.png)
 - **Auto-mirroring** — she reads which half of the monitor she is on; drag her to the left

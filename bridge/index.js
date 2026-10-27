@@ -11,7 +11,7 @@
  * 之所以用文件而不是 HTTP：Host 的 webServer 面向页面会话鉴权，外部进程调用麻烦；
  * 文件桥零依赖、不占端口、出错时能直接看文件。
  */
-import { promises as fs, readFileSync, existsSync } from 'node:fs'
+import { promises as fs, readFileSync, existsSync, openSync, closeSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
@@ -64,7 +64,67 @@ function log(line) {
 }
 
 /** 把桌宠当前的"心情"和长期情绪状态写进 system prompt，让回复像真人。 */
-function buildSystem(req, persona, emo, memory) {
+const WEEK_ZH = ['日', '一', '二', '三', '四', '五', '六']
+const WEEK_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function partOfDay(h) {
+  if (h < 5) return { zh: '凌晨', en: 'late night' }
+  if (h < 9) return { zh: '早上', en: 'early morning' }
+  if (h < 12) return { zh: '上午', en: 'morning' }
+  if (h < 14) return { zh: '中午', en: 'around noon' }
+  if (h < 18) return { zh: '下午', en: 'afternoon' }
+  if (h < 22) return { zh: '晚上', en: 'evening' }
+  return { zh: '深夜', en: 'late night' }
+}
+
+function humanGap(ms) {
+  const m = Math.floor(ms / 60000)
+  if (m < 1) return { zh: '刚刚', en: 'just now' }
+  if (m < 60) return { zh: `${m} 分钟`, en: `${m} min` }
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  if (h < 24) {
+    return {
+      zh: mm ? `${h} 小时 ${mm} 分钟` : `${h} 小时`,
+      en: mm ? `${h}h ${mm}m` : `${h}h`,
+    }
+  }
+  const d = Math.floor(h / 24)
+  const hh = h % 24
+  return {
+    zh: hh ? `${d} 天 ${hh} 小时` : `${d} 天`,
+    en: hh ? `${d}d ${hh}h` : `${d}d`,
+  }
+}
+
+/** 当前时间 + 离上次聊天的间隔，给 system prompt 用 */
+function timeLines(lang, lastAt) {
+  const now = new Date()
+  const p = partOfDay(now.getHours())
+  const out = []
+  if (lang === 'zh') {
+    out.push(`现在是 ${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} 星期${WEEK_ZH[now.getDay()]} ${pad2(now.getHours())}:${pad2(now.getMinutes())}（${p.zh}）。`)
+    if (lastAt && lastAt > 0) {
+      const gap = humanGap(Math.max(0, now.getTime() - Number(lastAt)))
+      out.push(`你们上次说话是 ${gap.zh}前。`)
+    }
+    out.push('你知道现在是几点：早上可以问早、饭点问吃没吃、深夜催对方睡觉、隔很久没见可以说想他了。但不要每句都报时间，也别把日期念出来。')
+  } else {
+    out.push(`It is ${WEEK_EN[now.getDay()]} ${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())} (${p.en}).`)
+    if (lastAt && lastAt > 0) {
+      const gap = humanGap(Math.max(0, now.getTime() - Number(lastAt)))
+      out.push(`Last time you two talked was ${gap.en} ago.`)
+    }
+    out.push('You know what time it is: say good morning, ask about lunch around noon, tell them to sleep late at night, mention you missed them after a long gap. Do not announce the clock or the date in every reply.')
+  }
+  return out
+}
+
+function buildSystem(req, persona, emo, memory, timeCtx) {
   const mood = Number(req?.mood)
   const hasMood = Number.isFinite(mood) && mood > 0
   const dims = req?.dims || {}
@@ -86,6 +146,7 @@ function buildSystem(req, persona, emo, memory) {
     lines.push('这是**桌面陪伴聊天**：可以闲聊、撒娇、闹小情绪；但如果对方明显在忙正事、说"在忙/等下/写代码/开会"，立刻收住，像懂事的同事那样简短干练，不撒娇、不缠人。')
     lines.push(`你的情绪状态：${d.moodWord}；${d.energyWord}；对对方的依赖程度：${d.affWord}（关系：${d.relationText}）。`)
     lines.push('情绪要自然流露、可以有自己的小脾气和小得意，但不要每句都夸对方、不要复读同样的关心句式，别报数字、别解释"我的心情值"。')
+    if (timeCtx) { for (const t of timeLines('zh', timeCtx.lastAt)) lines.push(t) }
     if (Array.isArray(memory) && memory.length) {
       for (const part of memory) {
         if (part.kind === 'warm' && part.text) {
@@ -114,6 +175,7 @@ function buildSystem(req, persona, emo, memory) {
     lines.push('This is desktop small talk: be playful, warm, occasionally pouty. But if the user is clearly busy ("busy", "later", "coding", "meeting"), switch to a brief, composed tone and do not act clingy.')
     lines.push(`Your inner state: ${d.moodWord}; ${d.energyWord}; attachment: ${d.affWord} (${d.relationText}).`)
     lines.push('Let feelings show naturally, with moods of your own, but do not flatter every line or repeat the same caring formula; never mention numbers.')
+    if (timeCtx) { for (const t of timeLines('en', timeCtx.lastAt)) lines.push(t) }
     if (Array.isArray(memory) && memory.length) {
       for (const part of memory) {
         if (part.kind === 'warm' && part.text) {
@@ -186,13 +248,17 @@ async function answer(ctx, config, req, outFile) {
   const emoPrev = drift(await loadEmotion(ROOT))
   const moodCtx = { ...emoPrev, busy: !!(req?.busy) }
   if (settings && settings.knowWorkspace) moodCtx.workspace = await readWorkspaceHint()
-  const system = buildSystem(req, persona, moodCtx, memParts)
+  const lastTurnAt = (mem && Array.isArray(mem.turns) && mem.turns.length)
+    ? Number(mem.turns[mem.turns.length - 1].at) || 0
+    : Number(emoPrev && emoPrev.updatedAt) || 0
+  const system = buildSystem(req, persona, moodCtx, memParts, { lastAt: lastTurnAt })
   const messages = [{
     role: 'user',
     id: randomUUID(),
     content: [{ type: 'text', text: String(req?.text || '') }],
     source: { kind: 'plugin', plugin: 'dsh-feiyu-bridge' },
   }]
+  log(`time now, lastTurnAt=${lastTurnAt}`)
   const out = { id: req.id, text: '', done: false, provider: target?.provider, model: target?.model }
   if (!target) {
     out.error = 'no-model'
@@ -359,6 +425,16 @@ function processAlive(pid) {
   }
 }
 
+function instanceLocked(lockFile) {
+  // The widget holds widget.lock exclusively; skip spawning a second copy.
+  try {
+    if (!existsSync(lockFile)) return false
+    const fd = openSync(lockFile, 'r+')
+    closeSync(fd)
+    return false
+  } catch { return true }
+}
+
 function widgetRunning(pidFile) {
   try {
     if (!existsSync(pidFile)) return false
@@ -378,6 +454,8 @@ export function autoStartWidget(cfg) {
   const pidFile = cfg.widgetPid || (cfg.dir ? path.join(cfg.dir, '..', 'widget.pid') : '')
   if (!vbs || !existsSync(vbs)) return { skipped: 'no-vbs', vbs }
   if (pidFile && widgetRunning(pidFile) && !cfg.force) return { skipped: 'running' }
+  const lockFile = pidFile ? path.join(path.dirname(pidFile), 'widget.lock') : ''
+  if (lockFile && instanceLocked(lockFile)) return { skipped: 'locked' }
   try {
     const child = spawn('wscript.exe', [vbs], { detached: true, stdio: 'ignore', windowsHide: true })
     child.unref()

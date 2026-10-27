@@ -5,7 +5,9 @@
   [switch]$Autostart,
   [switch]$RemoveShortcut,
   [string]$Say = '',
-  [switch]$OpenChat
+  [switch]$OpenChat,
+  [switch]$GreetNow,
+  [switch]$LangTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -728,19 +730,79 @@ function Render-Window($win, $path) {
   $fs.Close()
 }
 
+function Test-RectOverlap($ax, $ay, $aw, $ah, $bx, $by, $bw, $bh) {
+  if (($ax + $aw) -le ($bx + 2)) { return $false }
+  if (($bx + $bw) -le ($ax + 2)) { return $false }
+  if (($ay + $ah) -le ($by + 2)) { return $false }
+  if (($by + $bh) -le ($ay + 2)) { return $false }
+  return $true
+}
+
 function Place-Panel {
+  # 面板不压输入条、不压回复气泡：优先放形象靠屏幕中间那一侧，
+  # 侧面放不下再放到整摞气泡上方，最后兜底贴工作区顶部。
   if (-not $script:PanelOpen) { return }
   $wa = Get-WorkArea
   $panel.UpdateLayout()
-  $w = $panel.Width
-  $h = if ($panel.ActualHeight -gt 0) { $panel.ActualHeight } else { $panel.Height }
-  $left = $pet.Left + $pet.Width - $w
-  $top = $pet.Top - $h - 6
-  if ($left -lt $wa.Left + 4) { $left = $wa.Left + 4 }
-  if ($left + $w -gt $wa.Right - 4) { $left = $wa.Right - $w - 4 }
-  if ($top -lt $wa.Top + 4) { $top = $pet.Top + $pet.Height - 2 }
-  if ($top + $h -gt $wa.Bottom - 4) { $top = $wa.Bottom - $h - 4 }
-  $panel.Left = $left; $panel.Top = $top
+  $w = if ($panel.Width -gt 0) { [double]$panel.Width } else { 316.0 }
+  if ([double]::IsNaN($w)) { $w = 316.0 }
+  $h = [double]$panel.ActualHeight
+  if ([double]::IsNaN($h) -or $h -le 0) { $h = [double]$panel.Height }
+  if ([double]::IsNaN($h) -or $h -le 0) { $h = 460.0 }
+
+  $waL = [double]$wa.Left + 4
+  $waT = [double]$wa.Top + 4
+  $waR = [double]$wa.Right - 4
+  $waB = [double]$wa.Bottom - 4
+
+  $avoid = New-Object System.Collections.ArrayList
+  if ($script:ChatOpen) {
+    $cw = if ($script:Chat.ActualWidth -gt 0) { [double]$script:Chat.ActualWidth } else { 272.0 }
+    $ch = if ($script:Chat.ActualHeight -gt 0) { [double]$script:Chat.ActualHeight } else { 46.0 }
+    [void]$avoid.Add(@([double]$script:Chat.Left, [double]$script:Chat.Top, $cw, $ch))
+  }
+  if ($script:Bubble.IsVisible) {
+    $bw = if ($script:Bubble.ActualWidth -gt 0) { [double]$script:Bubble.ActualWidth } else { 272.0 }
+    $bh = if ($script:Bubble.ActualHeight -gt 0) { [double]$script:Bubble.ActualHeight } else { 60.0 }
+    [void]$avoid.Add(@([double]$script:Bubble.Left, [double]$script:Bubble.Top, $bw, $bh))
+  }
+
+  $petBottom = [double]$pet.Top + [double]$pet.Height
+  $petRight = [double]$pet.Left + [double]$pet.Width
+  $petCx = [double]$pet.Left + [double]$pet.Width / 2
+  $stackTop = [double]$pet.Top
+  foreach ($r in $avoid) { if ([double]$r[1] -lt $stackTop) { $stackTop = [double]$r[1] } }
+
+  $midX = ($waL + $waR) / 2
+  if ($petCx -ge $midX) { $sideA = [double]$pet.Left - $w - 10 } else { $sideA = $petRight + 10 }
+  if ($petCx -ge $midX) { $sideB = $petRight + 10 } else { $sideB = [double]$pet.Left - $w - 10 }
+  $sideTop = $petBottom - $h
+  $aboveTop = $stackTop - $h - 8
+
+  $cands = New-Object System.Collections.ArrayList
+  # 1) 整摞气泡上方（最自然） 2) 形象左侧 3) 形象右侧 4) 兜底
+  [void]$cands.Add(@(($petRight - $w), $aboveTop))
+  [void]$cands.Add(@($sideA, $sideTop))
+  [void]$cands.Add(@($sideB, $sideTop))
+  [void]$cands.Add(@(($waR - $w), $waT))
+
+  $chosenX = $waR - $w
+  $chosenY = $waT
+  foreach ($c in $cands) {
+    $l = [double]$c[0]
+    $t = [double]$c[1]
+    if ($l -lt $waL) { $l = $waL }
+    if (($l + $w) -gt $waR) { $l = $waR - $w }
+    if ($t -lt $waT) { $t = $waT }
+    if (($t + $h) -gt $waB) { $t = $waB - $h }
+    $bad = $false
+    foreach ($r in $avoid) {
+      if (Test-RectOverlap $l $t $w $h ([double]$r[0]) ([double]$r[1]) ([double]$r[2]) ([double]$r[3])) { $bad = $true; break }
+    }
+    if (-not $bad) { $chosenX = $l; $chosenY = $t; break }
+  }
+  $panel.Left = $chosenX
+  $panel.Top = $chosenY
 }
 
 function Save-Position {
@@ -768,6 +830,26 @@ function Load-Position {
   $wa = Get-WorkArea
   $pet.Left = $wa.Right - $pet.Width - 24
   $pet.Top  = $wa.Bottom - $pet.Height - 24
+}
+
+function Restart-WidgetLater([int]$Seconds = 2) {
+  # 语言这类需要重建界面的设置：先拉起一个延迟重启的 cmd，再退出当前实例。
+  try {
+    $cmd = '/c timeout /t ' + $Seconds + ' >nul & wscript.exe "' + $script:Launcher + '"'
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = (Join-Path $env:WINDIR 'System32\cmd.exe')
+    $psi.Arguments = $cmd
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.WindowStyle = 'Hidden'
+    [void][System.Diagnostics.Process]::Start($psi)
+    BootLog ('restart: queued in ' + $Seconds + 's')
+  } catch { BootLog ('restart: failed ' + $_.Exception.Message) }
+  try { Save-Position } catch { }
+  $script:Quitting = $true
+  try { $panel.Close() } catch { }
+  try { $pet.Close() } catch { }
+  [System.Windows.Application]::Current.Shutdown()
 }
 
 function Toggle-Panel {
@@ -1022,6 +1104,7 @@ function Place-Stacks {
     $script:Bubble.Left = $bx
     $script:Bubble.Top = $by
   }
+  if ($script:PanelOpen) { Place-Panel }
 }
 
 function Place-Bubble { Place-Stacks }
@@ -1060,6 +1143,7 @@ function Start-LeaveTimer {
   $script:LeaveTimer.Add_Tick({
     $script:LeaveTimer.Stop()
     if (-not $script:ChatOpen) { return }
+    if ($script:NoAutoClose) { return }
     if ($pet.IsMouseOver) { return }
     if ($script:Chat.IsMouseOver) { return }
     # 正在打字（输入框有焦点或有内容）时不要收起，否则输入会被打断
@@ -1096,6 +1180,12 @@ function Show-Bubble($text, $seconds = -1) {
 # ---------- chat ----------
 $script:Lines = @{
   idle  = @('嗯？','在看什么呢','要不要休息一下','我在这儿呢','（晃了晃脑袋）')
+  morning   = @('早安呀','今天也要好好过','早餐吃了吗','开工啦')
+  noon      = @('该吃饭了吧','午休一下？','不要饿着自己')
+  afternoon = @('下午也要加油','喝点水吧','休息一下眼睛')
+  evening   = @('晚上好呀','今天辛苦了','忙完就歇歇吧')
+  night     = @('晚上了，别太辛苦','还在忙吗','快去睡觉吧')
+  late      = @('这么晚了还不睡？','敷着着就睡吧','熬夜会变丑的')
   happy = @('今天心情不错呀','陪我聊两句？','嘿嘿')
   low   = @('你还好吗','有点累的样子','喝点水吧')
   sleepy = @('好困…眼睛要睁不开了','让我靠一会儿…','（打了个小哈欠）','困到说不出话了…')
@@ -1104,6 +1194,12 @@ $script:Lines = @{
 if ($script:Lang -eq 'en') {
   $script:Lines = @{
     idle   = @('Hm?', 'What are you looking at?', 'Shall we take a break?', 'I am right here', '(tilts her head)')
+    morning   = @('Good morning~', 'Morning! Coffee yet?', 'Let us have a good day')
+    noon      = @('Lunch time?', 'Take a nap?', 'Do not skip lunch')
+    afternoon = @('Keep it up this afternoon', 'Drink some water', 'Rest your eyes for a bit')
+    evening   = @('Good evening', 'Long day, huh', 'Take it easy tonight')
+    night     = @('It is evening already', 'Still busy?', 'Go to bed soon')
+    late      = @('Why are you still up?', 'Sleep already', 'Staying up late is bad for you')
     happy  = @('Feeling good today~', 'Talk to me for a while?', 'Hehe')
     low    = @('Are you okay?', 'You look a bit tired', 'Have some water')
     sleepy = @('So sleepy… my eyes are closing', 'Let me lean on you for a bit…', '(small yawn)', 'Too sleepy to talk…')
@@ -1265,10 +1361,87 @@ function Wait-Reply($id) {
   $script:ReplyTimer.Start()
 }
 
+function Get-TimeBagKey {
+  $h = (Get-Date).Hour
+  if ($h -ge 5 -and $h -lt 9)  { return 'morning' }
+  if ($h -ge 9 -and $h -lt 12) { return 'morning' }
+  if ($h -ge 12 -and $h -lt 14) { return 'noon' }
+  if ($h -ge 14 -and $h -lt 18) { return 'afternoon' }
+  if ($h -ge 18 -and $h -lt 22) { return 'evening' }
+  if ($h -ge 22 -or $h -lt 2)  { return 'night' }
+  return 'late'
+}
+
+function Read-LastChatGapMinutes {
+  # 上次聊天到现在过了多久（分钟）；没聊过或读不到返回 -1
+  try {
+    $f = Join-Path $script:BridgeDir 'memory.json'
+    if (-not (Test-Path $f)) { return -1 }
+    $j = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
+    $turns = @($j.turns)
+    if ($turns.Count -eq 0) { return -1 }
+    $last = [int64]$turns[$turns.Count - 1].at
+    if ($last -le 0) { return -1 }
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    return [int](($now - $last) / 60000)
+  } catch { return -1 }
+}
+
+function Get-GreetingLine {
+  $h = (Get-Date).Hour
+  $gap = Read-LastChatGapMinutes
+  $en = ($script:Lang -eq 'en')
+  $zhText = ''
+  $enText = ''
+  if ($h -ge 23 -or $h -lt 5) {
+    $zhText = '这么晚了还没睡？'
+    $enText = 'You are still up? It is so late'
+  } elseif ($h -lt 9) {
+    $zhText = '早安呀'
+    $enText = 'Good morning~'
+  } elseif ($h -ge 11 -and $h -lt 14) {
+    $zhText = '吃饭了吗？'
+    $enText = 'Have you had lunch?'
+  } elseif ($h -ge 18 -and $h -lt 23) {
+    $zhText = '晚上好呀'
+    $enText = 'Good evening'
+  } elseif ($gap -ge 720) {
+    $zhText = '好久不见了，你去哪了呀'
+    $enText = 'It has been ages! Where were you?'
+  } elseif ($gap -ge 60) {
+    $zhText = '你回来啦'
+    $enText = 'You are back~'
+  } else {
+    $zhText = '我在这儿呢'
+    $enText = 'Hey, I am here'
+  }
+  if ($en) { return $enText }
+  return $zhText
+}
+
+function Say-GreetingOnStart {
+  if ($Say -or $TestShot -or $Render) { return }
+  $gap = Read-LastChatGapMinutes
+  if ($GreetNow) { $gap = 999 }
+  # 刚聊完就不打招呼；超过 45 分钟没见才开口
+  if ($gap -ge 0 -and $gap -lt 45) { return }
+  if ($gap -lt 0 -and $script:Lines -eq $null) { return }
+  $script:GreetTimer = New-Object System.Windows.Threading.DispatcherTimer
+  $script:GreetTimer.Interval = [TimeSpan]::FromMilliseconds(2600)
+  $script:GreetTimer.Add_Tick({
+    $script:GreetTimer.Stop()
+    $line = Get-GreetingLine
+    BootLog ('greeting: ' + $line + ' gapMin=' + (Read-LastChatGapMinutes))
+    Show-Bubble $line 6
+  })
+  $script:GreetTimer.Start()
+}
+
 function Say-IdleLine {
   $snap = Get-MoodSnapshot
   $emo = Get-Emotion
-  $bag = if ($snap.mood -ge 70) { $script:Lines.happy } elseif ($snap.mood -gt 0 -and $snap.mood -lt 45) { $script:Lines.low } else { $script:Lines.idle }
+  $bag = if ($snap.mood -ge 70) { $script:Lines.happy } elseif ($snap.mood -gt 0 -and $snap.mood -lt 45) { $script:Lines.low } else { $script:Lines[(Get-TimeBagKey)] }
+  if (-not $bag) { $bag = $script:Lines.idle }
   # 情绪状态优先：困、黏人、闹小别扭各有各的说法
   if ($emo.updatedAt -gt 0) {
     if ($emo.energy -lt 22) { $bag = $script:Lines.sleepy }
@@ -1602,6 +1775,7 @@ function New-SettingsWindow {
       if ($n -gt $max) { return $max }
       return $n
     }
+    $beforeLang = $script:Lang
     $script:Settings.memory.enabled       = [bool]$w.FindName('OptMemory').IsChecked
     $script:Settings.knowWorkspace        = [bool]$w.FindName('OptWorkspace').IsChecked
     $script:Settings.autostart            = [bool]$w.FindName('OptAutostart').IsChecked
@@ -1615,6 +1789,10 @@ function New-SettingsWindow {
     Save-PetSettings
     Apply-PetSettings
     $w.Close()
+    if ($script:Settings.lang -ne $beforeLang) {
+      BootLog ('lang: switch ' + $beforeLang + ' -> ' + $script:Settings.lang)
+      Restart-WidgetLater 2
+    }
   })
   $script:SettingsWin = $w
   return $w
@@ -1771,9 +1949,11 @@ $pet.Add_Loaded({
   Load-Position
   Update-PetFacing
   Update-Ui
+  BootLog ('lang resolved: ' + $script:Lang + ' (setting=' + $script:Settings.lang + ')')
   Start-Anim
   Start-Tray
   $script:Timer.Start()
+  Say-GreetingOnStart
   $script:FgTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:FgTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
   $script:FgTimer.Add_Tick({ Update-FullscreenGuard })
@@ -1805,6 +1985,7 @@ if ($TestShot) {
   $shotTimer.Add_Tick({
     $shotTimer.Stop()
     try {
+      if ($OpenChat) { Place-Stacks }
       Toggle-Panel
       $script:Shot2 = New-Object System.Windows.Threading.DispatcherTimer
       $script:Shot2.Interval = [TimeSpan]::FromMilliseconds(1500)
@@ -1814,6 +1995,15 @@ if ($TestShot) {
           $base = [System.IO.Path]::ChangeExtension($TestShot, $null)
           Render-Window $pet   ($base + '_pet.png')
           Render-Window $panel ($base + '_panel.png')
+          if ($script:ChatOpen) { try { Render-Window $script:Chat ($base + '_chat.png') } catch { } }
+          if ($script:Bubble.IsVisible) { try { Render-Window $script:Bubble ($base + '_bubble.png') } catch { } }
+          $rects = [ordered]@{
+            pet    = @($pet.Left, $pet.Top, $pet.Width, $pet.Height)
+            panel  = @($panel.Left, $panel.Top, $panel.Width, $panel.ActualHeight)
+            chat   = @($script:Chat.Left, $script:Chat.Top, $script:Chat.Width, $script:Chat.ActualHeight)
+            bubble = @($script:Bubble.Left, $script:Bubble.Top, $script:Bubble.Width, $script:Bubble.ActualHeight)
+          }
+          ($rects | ConvertTo-Json -Compress) | Set-Content -LiteralPath ($base + '_rects.json') -Encoding UTF8
         } catch {
           Set-Content -LiteralPath ($TestShot + '.err.txt') -Value ($_.Exception.ToString()) -Encoding UTF8
         }
@@ -1914,7 +2104,14 @@ if ($Render) {
 }
 try { Set-Content -LiteralPath $script:PidFile -Value ([string]$PID) -Encoding ASCII; BootLog ('pid written ' + $script:PidFile) } catch { BootLog ('pid fail: ' + $_.Exception.Message) }
 $pet.Show()
-if ($OpenChat) { Toggle-Chat; Show-Bubble (L '这是测试回复，看看会不会压到输入框。') 0 }
+if ($LangTest) {
+  $from = $script:Lang
+  $script:Settings.lang = if ($from -eq 'en') { 'zh' } else { 'en' }
+  Save-PetSettings
+  BootLog ('lang: switch ' + $from + ' -> ' + $script:Settings.lang + ' (LangTest)')
+  Restart-WidgetLater 2
+}
+if ($OpenChat) { $script:NoAutoClose = $true; Toggle-Chat; Show-Bubble (L '这是测试回复，看看会不会压到输入框。') 0; Place-Stacks }
 Place-Panel
 [void]$app.Run()
 BootLog 'BOOTLOG exit'
