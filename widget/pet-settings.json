@@ -1,15 +1,15 @@
 {
-  "memory": {
-    "enabled": true,
-    "keepTurns": 3,
-    "compressEvery": 8,
-    "maxPoints": 5,
-    "warmPoints": 4
-  },
-  "knowWorkspace": false,
-  "bubbleSeconds": 6,
-  "refreshMs": 1200,
-  "autostart": true,
-  "model": "",
-  "lang": "en"
+    "memory":  {
+                   "enabled":  true,
+                   "keepTurns":  3,
+                   "compressEvery":  8,
+                   "maxPoints":  5,
+                   "warmPoints":  4
+               },
+    "knowWorkspace":  false,
+    "bubbleSeconds":  6,
+    "refreshMs":  1200,
+    "autostart":  true,
+    "model":  "",
+    "lang":  "en"
 }

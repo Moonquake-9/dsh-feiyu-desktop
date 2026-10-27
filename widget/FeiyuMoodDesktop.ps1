@@ -192,23 +192,24 @@ if ($InstallShortcut -or $RemoveShortcut) {
 
 # ---------- single instance (exclusive lock file; robust against races) ----------
 $script:InstanceLock = $null
+$script:Handoff = $false
+$script:LockPath = Join-Path $script:Root 'widget.lock'
+$script:ReadyFlag = Join-Path $script:Root '_ready.flag'
+$script:RestartFlag = Join-Path $script:Root '_restart.flag'
 if (-not $TestShot -and -not $Render) {
-  $lockPath = Join-Path $script:Root 'widget.lock'
-  try {
-    $script:InstanceLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
-      [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-  } catch {
-    exit 0
-  }
-}
-
-# ---------- single instance ----------
-if (-not $TestShot -and -not $Render -and -not $BubbleProbe -and (Test-Path $script:PidFile)) {
-  $oldPid = 0
-  [void][int]::TryParse((Get-Content $script:PidFile -Raw).Trim(), [ref]$oldPid)
-  if ($oldPid -gt 0) {
-    $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-    if ($proc -and $proc.ProcessName -match 'powershell|pwsh') { exit 0 }
+  Remove-Item $script:ReadyFlag -Force -ErrorAction SilentlyContinue
+  if (Test-Path $script:RestartFlag) {
+    # Woken by a language switch: the previous instance still owns the lock and keeps its
+    # window on screen. Show ours first, then take the lock once it has stepped aside.
+    $script:Handoff = $true
+    Remove-Item $script:RestartFlag -Force -ErrorAction SilentlyContinue
+  } else {
+    try {
+      $script:InstanceLock = [System.IO.File]::Open($script:LockPath, [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    } catch {
+      exit 0
+    }
   }
 }
 
@@ -832,18 +833,37 @@ function Load-Position {
   $pet.Top  = $wa.Bottom - $pet.Height - 24
 }
 
-function Restart-WidgetLater([int]$Seconds = 2) {
-  # 语言这类需要重建界面的设置：先拉起一个延迟重启的 cmd，再退出当前实例。
+function Restart-WidgetLater([int]$Milliseconds = 0) {
+  # Settings that need a rebuilt UI (language): flag the relaunch, start it right away,
+  # then quit — the new instance waits for this one's lock instead of sleeping here.
   try {
-    $cmd = '/c timeout /t ' + $Seconds + ' >nul & wscript.exe "' + $script:Launcher + '"'
+    $flag = Join-Path $script:Root '_restart.flag'
+    [System.IO.File]::WriteAllText($flag, ('{0:o}' -f (Get-Date)), (New-Object System.Text.UTF8Encoding($false)))
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = (Join-Path $env:WINDIR 'System32\cmd.exe')
-    $psi.Arguments = $cmd
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.WindowStyle = 'Hidden'
+    if ($Milliseconds -gt 0) {
+      $psi.FileName = (Join-Path $env:WINDIR 'System32\cmd.exe')
+      $psi.Arguments = '/c ping -n ' + [Math]::Ceiling($Milliseconds / 1000.0) + ' -w ' + $Milliseconds + ' 127.0.0.1 >nul & "' + (Join-Path $env:WINDIR 'System32\wscript.exe') + '" "' + $script:Launcher + '"'
+      $psi.UseShellExecute = $false
+      $psi.CreateNoWindow = $true
+    } else {
+      # ShellExecute gives the new instance its own handles: the old process can exit at once
+      # and whoever started us never waits on an inherited stdout pipe.
+      $psi.FileName = (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe')
+      $psi.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+      $psi.WorkingDirectory = $script:Root
+      $psi.UseShellExecute = $true
+      $psi.WindowStyle = 'Hidden'
+    }
+    Remove-Item $script:ReadyFlag -Force -ErrorAction SilentlyContinue
     [void][System.Diagnostics.Process]::Start($psi)
-    BootLog ('restart: queued in ' + $Seconds + 's')
+    BootLog ('restart: relaunch requested (' + $Milliseconds + 'ms)')
+    # Keep this window visible until the new instance has painted.
+    $handoffDeadline = [DateTime]::UtcNow.AddMilliseconds(2500)
+    while (-not (Test-Path $script:ReadyFlag)) {
+      if ([DateTime]::UtcNow -ge $handoffDeadline) { break }
+      Start-Sleep -Milliseconds 30
+    }
+    Remove-Item $script:ReadyFlag -Force -ErrorAction SilentlyContinue
   } catch { BootLog ('restart: failed ' + $_.Exception.Message) }
   try { Save-Position } catch { }
   $script:Quitting = $true
@@ -1519,7 +1539,9 @@ function Snap-ToEdges {
 
 
 # ---------- fullscreen auto-hide ----------
-if (-not ('FgWin' -as [type])) {
+function Ensure-FgWin {
+  if ('FgWin' -as [type]) { return }
+  if (-not ('FgWin' -as [type])) {
   Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -1554,7 +1576,9 @@ public static class FgWin {
     return r.Left <= m.Left + 1 && r.Top <= m.Top + 1 && r.Right >= m.Right - 1 && r.Bottom >= m.Bottom - 1;
   }
 }
+}
 "@
+}
 }
 
 $script:PetHidden = $false
@@ -1583,6 +1607,7 @@ function Show-PetAll {
 }
 
 function Update-FullscreenGuard {
+  Ensure-FgWin
   try {
     if (-not $script:HideOnFullscreen) { return }
     if ($script:SettingsWin) { return }   # never hide while her settings dialog is open
@@ -1791,7 +1816,7 @@ function New-SettingsWindow {
     $w.Close()
     if ($script:Settings.lang -ne $beforeLang) {
       BootLog ('lang: switch ' + $beforeLang + ' -> ' + $script:Settings.lang)
-      Restart-WidgetLater 2
+      Restart-WidgetLater
     }
   })
   $script:SettingsWin = $w
@@ -1950,14 +1975,49 @@ $pet.Add_Loaded({
   Update-PetFacing
   Update-Ui
   BootLog ('lang resolved: ' + $script:Lang + ' (setting=' + $script:Settings.lang + ')')
+  if ($script:Handoff) {
+    try { [System.IO.File]::WriteAllText($script:ReadyFlag, '1', (New-Object System.Text.UTF8Encoding($false))) } catch { }
+    BootLog 'handoff: ready flag written'
+    $script:LockTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:LockTimer.Interval = [TimeSpan]::FromMilliseconds(80)
+    $script:LockTimer.Add_Tick({
+      if ($script:InstanceLock) { $script:LockTimer.Stop(); return }
+      try {
+        $script:InstanceLock = [System.IO.File]::Open($script:LockPath, [System.IO.FileMode]::OpenOrCreate,
+          [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $script:LockTimer.Stop()
+        BootLog ('handoff: lock acquired after ' + [int]$script:LockTries + ' tries')
+      } catch {
+        if (-not $script:LockTries) { $script:LockTries = 0 }
+        $script:LockTries++
+        if ($script:LockTries -gt 60) {
+          $script:LockTimer.Stop()
+          try { $pet.Close() } catch { }
+          [System.Windows.Application]::Current.Shutdown()
+        }
+      }
+    })
+    $script:LockTimer.Start()
+  }
   Start-Anim
-  Start-Tray
   $script:Timer.Start()
   Say-GreetingOnStart
-  $script:FgTimer = New-Object System.Windows.Threading.DispatcherTimer
-  $script:FgTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
-  $script:FgTimer.Add_Tick({ Update-FullscreenGuard })
-  $script:FgTimer.Start()
+  # Heavy startup bits run right after the first paint: the pet is on screen sooner,
+  # which keeps the language-switch restart short.
+  $script:WarmTimer = New-Object System.Windows.Threading.DispatcherTimer
+  $script:WarmTimer.Interval = [TimeSpan]::FromMilliseconds(120)
+  $script:WarmTimer.Add_Tick({
+    $script:WarmTimer.Stop()
+    try { Start-Tray } catch { }
+    try {
+      Ensure-FgWin
+      $script:FgTimer = New-Object System.Windows.Threading.DispatcherTimer
+      $script:FgTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+      $script:FgTimer.Add_Tick({ Update-FullscreenGuard })
+      $script:FgTimer.Start()
+    } catch { }
+  })
+  $script:WarmTimer.Start()
   if ($Say) {
     $script:ChatInput.Text = $Say
     Send-Chat
@@ -1975,7 +2035,7 @@ $pet.Add_Loaded({
   }
 })
 
-$pet.Add_Closed({ Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
+$pet.Add_Closed({ if ($script:WarmTimer) { $script:WarmTimer.Stop() }; Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
 
 $panel.Add_Closed({ })
 
@@ -2109,7 +2169,7 @@ if ($LangTest) {
   $script:Settings.lang = if ($from -eq 'en') { 'zh' } else { 'en' }
   Save-PetSettings
   BootLog ('lang: switch ' + $from + ' -> ' + $script:Settings.lang + ' (LangTest)')
-  Restart-WidgetLater 2
+  Restart-WidgetLater
 }
 if ($OpenChat) { $script:NoAutoClose = $true; Toggle-Chat; Show-Bubble (L '这是测试回复，看看会不会压到输入框。') 0; Place-Stacks }
 Place-Panel
