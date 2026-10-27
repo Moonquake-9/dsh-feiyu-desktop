@@ -16,7 +16,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { loadEmotion, saveEmotion, afterChat, drift, describe } from './emotion.js'
+import { loadEmotion, saveEmotion, afterChat, drift, describe, DIM_KEYS } from './emotion.js'
 import { loadMemory, saveMemory, pushTurn, dueTurns, takeDue, commitWarm, memoryBlock, compressWithModel } from './memory.js'
 
 export const name = 'dsh-feiyu-bridge'
@@ -125,9 +125,10 @@ function timeLines(lang, lastAt) {
 }
 
 function buildSystem(req, persona, emo, memory, timeCtx) {
-  const mood = Number(req?.mood)
+  const emoMood = Number(emo && emo.moodView)
+  const mood = Number.isFinite(emoMood) && emoMood > 0 ? emoMood : Number(req?.mood)
   const hasMood = Number.isFinite(mood) && mood > 0
-  const dims = req?.dims || {}
+  const dims = (emo && emo.dims) || req?.dims || {}
   const dimText = Object.entries(dims)
     .filter(([, v]) => Number(v) > 0)
     .map(([k, v]) => `${k}=${Math.round(Number(v))}`)
@@ -160,7 +161,7 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
       lines.push('你记得最近的互动：' + d.memories.slice(-3).map((m) => `对方说“${m.user}”，你说“${m.reply}”`).join('；') + '。可以自然地提起，别生硬复述。')
     }
     if (hasMood) {
-      lines.push(`另外，你在 DSH 会话里刚经历的心情：${Math.round(mood)}/100（${labelOf(mood)}）` +
+      lines.push(`你现在的心情：${Math.round(mood)}/100（${labelOf(mood)}）` +
         (dimText ? `；七维情绪：${dimText}` : '') +
         (req?.reason ? `；缘由：${String(req.reason).slice(0, 160)}` : ''))
     }
@@ -189,7 +190,7 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
       lines.push('Recent exchanges you remember: ' + d.memories.slice(-3).map((m) => `user: "${m.user}" / you: "${m.reply}"`).join('; '))
     }
     if (hasMood) {
-      lines.push(`Also, your mood from the DSH session a moment ago: ${Math.round(mood)}/100 (${labelOf(mood)})` +
+      lines.push(`Your mood right now: ${Math.round(mood)}/100 (${labelOf(mood)})` +
         (dimText ? `; feelings: ${dimText}` : '') +
         (req?.reason ? `; reason: ${String(req.reason).slice(0, 160)}` : ''))
     }
@@ -298,6 +299,8 @@ async function answer(ctx, config, req, outFile) {
   try {
     const { emotion } = afterChat(emoPrev, { text: req?.text, reply: out.text, mood: req?.mood })
     await saveEmotion(ROOT, emotion)
+    const dimsOut = {}
+    for (const k of DIM_KEYS) dimsOut[k] = Math.round(Number((emotion.dims || {})[k]) || 0)
     out.emotion = {
       valence: Math.round(emotion.valence),
       energy: Math.round(emotion.energy),
@@ -305,6 +308,8 @@ async function answer(ctx, config, req, outFile) {
       trust: Math.round(emotion.trust),
       relation: emotion.relation,
       chatCount: emotion.chatCount,
+      moodView: emotion.moodView,
+      dims: dimsOut,
     }
   } catch (e) {
     log('emotion save failed: ' + (e && e.message))

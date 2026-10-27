@@ -609,8 +609,12 @@ function Update-Ui {
   $emo = Get-Emotion
   $eff = $mood
   if ($emo.updatedAt -gt 0) {
-    $emoBase = [double](($emo.valence + 100) / 2)
-    $eff = [int][Math]::Round($mood * 0.35 + $emoBase * 0.65)
+    if ($emo.moodView -gt 0) {
+      $eff = [int]$emo.moodView
+    } else {
+      $emoBase = [double](($emo.valence + 100) / 2)
+      $eff = [int][Math]::Round($mood * 0.35 + $emoBase * 0.65)
+    }
   }
   $face = Get-FaceInfo $eff
   if ([DateTime]::UtcNow -lt $script:FaceLockUntil -and $script:CurFaceFile -and (Test-Path (Join-Path $script:Assets $script:CurFaceFile))) {
@@ -630,7 +634,7 @@ function Update-Ui {
       [Convert]::ToByte($face.Color.Substring(5,2),16))
     $script:Pill.BorderBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.Color]::FromArgb(150, $c.R, $c.G, $c.B))
   } catch { }
-  $script:BigText.Text = [string]$mood
+  $script:BigText.Text = [string]$eff
   $script:BigText.Foreground = (New-Object System.Windows.Media.BrushConverter).ConvertFromString('#E8E8EA')
   $slot = [string]$data.Label
   $rel = Get-RelationLabel $emo.relation
@@ -638,16 +642,22 @@ function Update-Ui {
   $script:SmallText.Text = $script:SmallText.Text + ' · ' + $rel
   $reason = ''
   if ($e.lastReason) { $reason = [string]$e.lastReason }
-  $script:Reason.Text = if ($reason) { $reason } else { (L '还没有判断过心情') }
+  $reasonText = $reason
+  if (-not $reasonText -and $emo.chatCount -gt 0) {
+    $reasonText = if ($script:Lang -eq 'en') { ('We have talked {0} times.' -f $emo.chatCount) } else { ('我们已经聊了 {0} 轮啦。' -f $emo.chatCount) }
+  }
+  if (-not $reasonText) { $reasonText = (L '还没有判断过心情') }
+  $script:Reason.Text = $reasonText
+  $dimSrc = if ($emo.updatedAt -gt 0 -and $emo.dims -and $emo.dims.Count -gt 0) { $emo.dims } else { $e.dims }
   foreach ($k in $DIM_KEYS) {
     $v = 0
-    try { $v = [double]$e.dims.$k } catch { }
+    try { if ($dimSrc) { $v = [double]$dimSrc[$k] } } catch { }
     $row = $script:DimRows[$k]
     $row.Val.Text = '{0:+0;-0;0}' -f [int]$v
     $trackW = 0.0
     try { $trackW = $row.Track.ActualWidth } catch { }
     if ($trackW -le 0) { $trackW = 180 }
-    $ratio = [Math]::Min(1.0, [Math]::Abs($v) / 100.0)
+    $ratio = [Math]::Min(1.0, [Math]::Abs($v) / 60.0)
     $row.Fill.Width = [Math]::Round($trackW * $ratio, 1)
   }
   # timeline
@@ -1099,7 +1109,9 @@ function Place-Stacks {
   # 回复气泡叠在输入条上方；输入条收起时，气泡直接贴回形象头顶。
   $wa = Get-WorkArea
   $petRight = $pet.Left + $pet.Width
-  $cursor = $pet.Top - 8
+  # 贴图四周有透明留白：按可见头顶算，气泡才会真的贴着她
+  $ins = Get-PetInsets
+  $cursor = $pet.Top + [double]$ins.Top - 10
   if ($script:ChatOpen) {
     $script:Chat.UpdateLayout()
     $cw = if ($script:Chat.ActualWidth -gt 0) { $script:Chat.ActualWidth } else { 272 }
@@ -1264,7 +1276,7 @@ function Read-BridgeAlive {
 
 # 长期情绪（亲密度 / 精力 / 愉悦 / 关系 / 记忆）由桥插件写 emotion.json，挂件只读。
 function Get-Emotion {
-  $e = @{ valence = 0; energy = 100; affection = 0; trust = 0; relation = 'stranger'; memories = @(); updatedAt = 0 }
+  $e = @{ valence = 0; energy = 100; affection = 0; trust = 0; relation = 'stranger'; memories = @(); updatedAt = 0; moodView = 0; chatCount = 0; dims = @{} }
   try {
     $file = Join-Path $script:BridgeDir 'emotion.json'
     if (Test-Path $file) {
@@ -1274,6 +1286,9 @@ function Get-Emotion {
       if ($j.affection -ne $null) { $e.affection = [double]$j.affection }
       if ($j.trust -ne $null) { $e.trust = [double]$j.trust }
       if ($j.relation) { $e.relation = [string]$j.relation }
+      if ($j.moodView -ne $null) { $e.moodView = [int]$j.moodView }
+      if ($j.chatCount -ne $null) { $e.chatCount = [int]$j.chatCount }
+      if ($j.dims) { $dd = @{}; foreach ($pp in $j.dims.PSObject.Properties) { $dd[$pp.Name] = [double]$pp.Value }; $e.dims = $dd }
       if ($j.memories) { $e.memories = @($j.memories) }
       if ($j.updatedAt) { $e.updatedAt = [int64]$j.updatedAt }
     }
@@ -1303,8 +1318,9 @@ function Toggle-Chat {
     $script:Chat.Hide()
     $script:ChatOpen = $false
     Place-Stacks
-    # 收起输入条后，气泡从原来吊在半空的位置落回她头顶
+    # 收起输入条后，气泡从原来吊在半空的位置落回她头顶，并且稍快一点收走
     if ($hadBubble) { Start-BubbleGlide $oldX $oldY $script:Bubble.Left $script:Bubble.Top }
+    if ($script:Bubble.IsVisible) { Hide-BubbleLater 2.2 }
     return
   }
   $script:ChatOpen = $true

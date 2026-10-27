@@ -6,8 +6,32 @@ import path from 'node:path'
  * 全部落盘在 bridge/emotion.json，重启不丢；聊天会改变情绪，时间会衰减和恢复。
  */
 
-const STATE_VERSION = 1
+const STATE_VERSION = 2
 const MAX_MEMORIES = 14
+
+// 七维情绪：桌面聊天里每一句都会往对应维度加一点，平时按半衰期回落。
+export const DIM_KEYS = ['happy', 'calm', 'sweet', 'heartache', 'worry', 'sad', 'jealous']
+const DIM_TAGS = {
+  happy: ['praise', 'happy', 'thanks'],
+  calm: ['greeting', 'question'],
+  sweet: ['affection', 'playful'],
+  heartache: ['tired', 'sad'],
+  worry: ['busy', 'tired'],
+  sad: ['sad', 'complaint'],
+  jealous: ['complaint', 'busy'],
+}
+
+function emptyDims() {
+  const o = {}
+  for (const k of DIM_KEYS) o[k] = 0
+  return o
+}
+
+function moodViewOf(e) {
+  const v = Number(e && e.valence) || 0
+  const a = Number(e && e.affection) || 0
+  return Math.max(1, Math.min(100, Math.round(50 + v * 0.45 + (a - 50) * 0.12)))
+}
 
 // 关键词打标：轻量启发式，不额外花模型调用。
 const TAGS = [
@@ -43,6 +67,8 @@ export function defaultEmotion() {
     lastChatAt: 0,
     lastSeenAt: 0,
     streakDays: 1,
+    dims: emptyDims(),
+    moodView: 50,
     memories: [],
     updatedAt: 0,
   }
@@ -80,9 +106,14 @@ export function drift(e, t = now()) {
       out.valence -= Math.min(10, (hoursSilent - 6) * 0.9)
     }
   }
+  const dims = { ...emptyDims(), ...(out.dims || {}) }
+  const decay = Math.exp(-minutes / 180 * Math.LN2)
+  for (const k of DIM_KEYS) dims[k] = clamp(Number(dims[k]) * decay, 0, 100)
+  out.dims = dims
   out.valence = clamp(Number(out.valence), -100, 100)
   out.energy = clamp(Number(out.energy), 0, 100)
   out.relation = relationOf(out)
+  out.moodView = moodViewOf(out)
   out.updatedAt = t
   return out
 }
@@ -120,6 +151,20 @@ export function afterChat(prev, { text, reply, mood }) {
     // 与 DSH 会话里的心情（feiyu-mood）做温和融合
     e.valence = clamp(Number(e.valence) * 0.7 + (Number(mood) - 50) * 0.6, -100, 100)
   }
+  const dims = { ...emptyDims(), ...(e.dims || {}) }
+  for (const k of DIM_KEYS) dims[k] = Number(dims[k]) * 0.88
+  if (w > 0) dims.happy += 5 * Math.min(1, w / 6)
+  for (const [k, tags] of Object.entries(DIM_TAGS)) {
+    let hits2 = 0
+    for (const tg of tags) if (hits.includes(tg)) hits2 += 1
+    if (hits2) dims[k] += 3.2
+  }
+  if (hits.includes('complaint')) { dims.sad += 3; dims.jealous += 2 }
+  if (hits.includes('tired')) dims.heartache += 2.5
+  if (hits.includes('sad')) dims.sad += 3
+  for (const k of DIM_KEYS) dims[k] = clamp(Math.round(dims[k] * 10) / 10, 0, 100)
+  e.dims = dims
+  e.moodView = moodViewOf(e)
   e.relation = relationOf(e)
   e.lastChatAt = t
   e.lastSeenAt = t
@@ -159,6 +204,8 @@ export function describe(e) {
     moodWord, energyWord, affWord,
     relation: emo.relation || 'stranger',
     v, energy, aff,
+    moodView: Number.isFinite(Number(emo.moodView)) ? Number(emo.moodView) : moodViewOf(emo),
+    dims: { ...emptyDims(), ...(emo.dims || {}) },
     relationText: RELATION_TEXT[emo.relation] || RELATION_TEXT.stranger,
     memories: Array.isArray(emo.memories) ? emo.memories : [],
   }
