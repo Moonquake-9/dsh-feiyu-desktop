@@ -7,7 +7,8 @@
   [string]$Say = '',
   [switch]$OpenChat,
   [switch]$GreetNow,
-  [switch]$LangTest
+  [switch]$LangTest,
+  [switch]$ChatTwice
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1181,6 +1182,8 @@ function Hide-BubbleLater($seconds) {
   $script:BubbleTimer.Interval = [TimeSpan]::FromSeconds($seconds)
   $script:BubbleTimer.Add_Tick({
     $script:BubbleTimer.Stop()
+    $script:BubbleTimer = $null
+    BootLog 'bubble: hide (timer)'
     $script:Bubble.Hide()
     Place-Stacks
   })
@@ -1190,8 +1193,11 @@ function Hide-BubbleLater($seconds) {
 function Show-Bubble($text, $seconds = -1) {
   if ($seconds -lt 0) { $seconds = [int]$script:Settings.bubbleSeconds }
   if (-not $text) { return }
+  # A reply from the previous turn may still have a hide timer armed; drop it.
+  if ($script:BubbleTimer) { $script:BubbleTimer.Stop(); $script:BubbleTimer = $null }
   $script:BubText.Text = [string]$text
-  $script:Bubble.Show()
+  if (-not $script:Bubble.IsVisible) { $script:Bubble.Show() }
+  BootLog 'bubble: show'
   $script:Bubble.UpdateLayout()
   Place-Bubble
   if ($seconds -gt 0) { Hide-BubbleLater $seconds }
@@ -1359,6 +1365,10 @@ function Wait-Reply($id) {
             $script:CurFaceFile = 'face-good.png'
             Set-ImageSource $script:PetImg (Join-Path $script:Assets 'face-good.png')
             $script:BubText.Text = $txt
+            if (-not $script:Bubble.IsVisible) {
+              $script:Bubble.Show()
+              BootLog 'bubble: restored while streaming'
+            }
             $script:Bubble.UpdateLayout()
             Place-Bubble
           }
@@ -1368,7 +1378,7 @@ function Wait-Reply($id) {
           $script:FaceLockUntil = [DateTime]::UtcNow.AddMilliseconds(2200)
           Update-Ui
           if (-not $txt -and $j.error) { Show-Bubble ((L '没连上模型（') + $j.error + ')') 8 }
-          elseif ($txt) { Hide-BubbleLater 18 }
+          elseif ($txt) { Show-Bubble $txt 18 }
           else { Show-Bubble (L '……（她没说话）') 6 }
         }
       }
@@ -2038,6 +2048,46 @@ $pet.Add_Loaded({
 $pet.Add_Closed({ if ($script:WarmTimer) { $script:WarmTimer.Stop() }; Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
 
 $panel.Add_Closed({ })
+
+if ($ChatTwice) {
+  $script:NoAutoClose = $true
+  $script:CtStage = 0
+  $script:CtTicks = 0
+  $script:CtLog = New-Object System.Collections.ArrayList
+  $script:CtTimer = New-Object System.Windows.Threading.DispatcherTimer
+  $script:CtTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+  $script:CtTimer.Add_Tick({
+    $script:CtTicks++
+    [void]$script:CtLog.Add(('t={0} stage={1} bubble={2} text={3}' -f $script:CtTicks, $script:CtStage, $script:Bubble.IsVisible, $script:BubText.Text.Substring(0, [Math]::Min(8, $script:BubText.Text.Length))))
+    if ($script:CtStage -eq 0) {
+      Toggle-Chat
+      Start-Sleep -Milliseconds 200
+      $script:ChatInput.Text = '第一句话测试'
+      Send-Chat
+      $script:CtStage = 1
+      return
+    }
+    if ($script:CtStage -eq 1) {
+      $busy = ($script:ReplyTimer -and $script:ReplyTimer.IsEnabled)
+      if (-not $busy -and $script:CtTicks -gt 4) {
+        $script:ChatInput.Text = '第二句话测试'
+        Send-Chat
+        $script:CtStage = 2
+      }
+      return
+    }
+    if ($script:CtStage -eq 2) {
+      $busy = ($script:ReplyTimer -and $script:ReplyTimer.IsEnabled)
+      if (-not $busy -and $script:CtTicks -gt 2) {
+        $script:CtTimer.Stop()
+        $script:CtLog | Set-Content -LiteralPath (Join-Path $script:Root '_chat2.txt') -Encoding UTF8
+        try { $pet.Close() } catch { }
+        [System.Windows.Application]::Current.Shutdown()
+      }
+    }
+  })
+  $script:CtTimer.Start()
+}
 
 if ($TestShot) {
   $shotTimer = New-Object System.Windows.Threading.DispatcherTimer
