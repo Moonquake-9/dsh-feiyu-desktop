@@ -50,6 +50,8 @@ calls inside the DSH Host process — the pet never touches your conversation co
 - **English interface** — her settings window has an “English interface” checkbox that flips every
   label (panel, menus, tray, balloon, chat bar, idle lines) between 中文 and English. The same switch is
   `lang` in `widget/pet-settings.json` (`"auto"` / `"zh"` / `"en"`); `auto` follows the Windows UI language.
+
+![Switching to the English interface](docs/preview-settings-language.png)
 - **Auto-mirroring** — she reads which half of the monitor she is on; drag her to the left
   side and the whole sprite flips horizontally so she always faces into the screen.
 - **Edge snapping** — drop her within 20 px of a screen edge and she glides into place (120 ms
