@@ -42,6 +42,9 @@ calls inside the DSH Host process — the pet never touches your conversation co
   (click anywhere else) drops the bubble back down onto her head instead of leaving it floating.
 - **Emotion memory** — persistent affection/trust/energy that drift over time, plus a hot layer
   (last N turns) and a warm layer (model-compressed notes every M turns). No cold diary yet.
+- **She starts conversations** — after a quiet spell (about 25 minutes by default) she says something on her
+  own, and a few minutes after a chat she follows up on what you said (`还在吗？` / "did you manage to rest?").
+  Interval and on/off live in her settings (`proactive`, `proactiveMinutes`).
 - **Her own settings window** (right-click → settings): memory on/off, retain/compress cadence,
   “know what I'm busy with”, autostart, bubble seconds, refresh interval, model override.
   The footer of that window shows the version and build number of the copy you are running

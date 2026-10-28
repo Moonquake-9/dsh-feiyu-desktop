@@ -8,7 +8,8 @@
   [switch]$OpenChat,
   [switch]$GreetNow,
   [switch]$LangTest,
-  [switch]$ChatTwice
+  [switch]$ChatTwice,
+  [switch]$ProactiveTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +62,11 @@ $script:ReplyTicks = 0
 $script:ReplyTimer = $null
 $script:BubbleTimer = $null
 $script:ReplyId = ''
+$script:LastUserAction = Get-Date
+$script:LastSpokeAt = (Get-Date).AddMinutes(-30)
+$script:LastProactiveLine = ''
+$script:ProactiveTimer = $null
+$script:FollowupTimer = $null
 $script:AppDir = $script:Root
 $script:Launcher = Join-Path $script:Root 'launch.vbs'
 $script:DeskLink = Join-Path ([Environment]::GetFolderPath('Desktop')) '鱼的心情.lnk'
@@ -77,6 +83,8 @@ $script:Settings = [pscustomobject]@{
   bubbleSeconds = 6
   refreshMs     = 1200
   autostart     = $true
+  proactive     = $true
+  proactiveMinutes = 25
   model         = ''
   lang          = 'auto'
 }
@@ -86,7 +94,7 @@ function Read-PetSettings {
     if (-not (Test-Path -LiteralPath $script:SettingsPath)) { return }
     $raw = Get-Content -LiteralPath $script:SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($null -eq $raw) { return }
-    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model', 'lang')) {
+    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model', 'lang', 'proactive', 'proactiveMinutes')) {
       if ($null -ne $raw.$k) { $script:Settings.$k = $raw.$k }
     }
     if ($null -ne $raw.memory) {
@@ -110,6 +118,8 @@ function Save-PetSettings {
     bubbleSeconds = [int]$script:Settings.bubbleSeconds
     refreshMs     = [int]$script:Settings.refreshMs
     autostart     = [bool]$script:Settings.autostart
+    proactive     = [bool]$script:Settings.proactive
+    proactiveMinutes = [int]$script:Settings.proactiveMinutes
     model         = [string]$script:Settings.model
     lang          = [string]$script:Settings.lang
   }
@@ -137,6 +147,7 @@ function Apply-PetSettings {
     $script:Timer.Interval = [TimeSpan]::FromMilliseconds($ms)
   }
   Set-Autostart ([bool]$script:Settings.autostart)
+  try { Start-Proactive } catch { }
 }
 
 # ---------- shortcuts ----------
@@ -233,6 +244,9 @@ $script:I18N = [ordered]@{
   '轮；每' = 'turns; compress every'
   '轮压缩一次' = 'turns'
   '开机时自动出现' = 'Show up at startup'
+  '让她偶尔主动找我' = 'Let her start a conversation now and then'
+  '主动间隔' = 'Every'
+  '分钟；安静时不打扰' = 'min (stays quiet when you are busy)'
   '英文界面（English interface）' = 'English interface'
   '气泡停留' = 'Bubble stays'
   '秒；心情刷新' = 's; mood refresh'
@@ -1309,6 +1323,7 @@ function Get-RelationLabel($rel) {
 function Place-Chat { Place-Stacks }
 
 function Toggle-Chat {
+  Mark-UserAction
   BootLog ('toggle-chat open=' + $script:ChatOpen)
   Stop-BubbleGlide
   $oldX = $script:Bubble.Left
@@ -1331,6 +1346,7 @@ function Toggle-Chat {
 }
 
 function Send-Chat {
+  Mark-UserAction
   $text = $script:ChatInput.Text.Trim()
   if (-not $text) { return }
   $script:ChatInput.Text = ''
@@ -1394,7 +1410,7 @@ function Wait-Reply($id) {
           $script:FaceLockUntil = [DateTime]::UtcNow.AddMilliseconds(2200)
           Update-Ui
           if (-not $txt -and $j.error) { Show-Bubble ((L '没连上模型（') + $j.error + ')') 8 }
-          elseif ($txt) { Show-Bubble $txt 18 }
+          elseif ($txt) { Show-Bubble $txt 18; try { Schedule-Followup } catch { } }
           else { Show-Bubble (L '……（她没说话）') 6 }
         }
       }
@@ -1497,6 +1513,160 @@ function Say-IdleLine {
   $line = $bag | Get-Random
   Hop
   Show-Bubble $line 5
+}
+
+# ---------- she talks on her own ----------
+function Mark-UserAction { $script:LastUserAction = Get-Date }
+
+function Get-LastHeartContext {
+  $out = @{ tags = @(); user = ''; gapMin = -1 }
+  try {
+    $f = Join-Path $script:BridgeDir 'emotion.json'
+    if (Test-Path $f) {
+      $j = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
+      $mems = @($j.memories)
+      if ($mems.Count -gt 0) {
+        $last = $mems[$mems.Count - 1]
+        if ($last.tags) { $out.tags = @($last.tags) }
+        if ($last.user) { $out.user = [string]$last.user }
+        $at = [int64]$last.at
+        if ($at -gt 0) { $out.gapMin = [int](([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $at) / 60000) }
+      }
+    }
+  } catch { }
+  return $out
+}
+
+function Get-ProactiveLine {
+  $en = ($script:Lang -eq 'en')
+  $h = (Get-Date).Hour
+  $emo = Get-Emotion
+  $idle = ((Get-Date) - $script:LastUserAction).TotalMinutes
+  $ctx = Get-LastHeartContext
+  $tags = @($ctx.tags)
+  # 1) 接着刚才的话说：这是最像“真人”的部分
+  if ($ctx.gapMin -ge 0 -and $ctx.gapMin -le 120 -and $tags.Count -gt 0) {
+    if ($tags -contains 'tired') { if ($en) { return 'You said you were tired — did you actually lie down?' } return '刚才说累，去躺会儿了吗？' }
+    if ($tags -contains 'sad') { if ($en) { return 'You sounded down earlier. Feeling any better?' } return '刚才好像不太开心，现在好点没？' }
+    if ($tags -contains 'busy') { if ($en) { return 'Still busy? Not to interrupt.' } return '忙完了没？我不吵你，就问一句' }
+    if ($tags -contains 'affection' -or $tags -contains 'praise') { if ($en) { return 'I am still thinking about what you said.' } return '刚才那句我可记着了' }
+  }
+  # 2) 深夜劝睡
+  if (($h -ge 23 -or $h -lt 5) -and $idle -ge 12) {
+    $pool = if ($en) { @('Still up? It is really late', 'Go to sleep, I will be here tomorrow', 'If you stay up any longer, tomorrow is ruined') } else { @('还不睡？都这个点了', '该睡了，我明天还在的', '再熬下去明天又要困一整天') }
+    return ($pool | Get-Random)
+  }
+  # 3) 黏人：被冷落时主动讨关注
+  if ($emo.updatedAt -gt 0 -and $emo.relation -eq 'clingy' -and $idle -ge 40) {
+    $pool = if ($en) { @('You have ignored me for ages', 'Hey, look at me for a second', 'I have been sitting here the whole time') } else { @('你又半天不理我了', '喂，看看我嘛', '我在这儿坐了半天了') }
+    return ($pool | Get-Random)
+  }
+  # 4) 时段
+  $bag = Get-TimeBagKey
+  if ($bag -eq 'morning') {
+    $pool = if ($en) { @('Morning — sleep okay?', 'Drink some water first', 'What are we doing today?') } else { @('早呀，昨晚睡得怎么样', '起来先喝点水', '今天想先干哪件事') }
+    return ($pool | Get-Random)
+  }
+  if ($bag -eq 'noon') {
+    $pool = if ($en) { @('Lunch time, do not skip it', 'Rest ten minutes after eating') } else { @('该吃饭了，别拖', '吃完饭歇十分钟') }
+    return ($pool | Get-Random)
+  }
+  if ($bag -eq 'afternoon') {
+    $pool = if ($en) { @('Afternoon slump — stand up for a bit', 'Give your eyes a break') } else { @('下午了，站起来走两步', '眼睛歇会儿吧') }
+    return ($pool | Get-Random)
+  }
+  if ($bag -eq 'evening') {
+    $pool = if ($en) { @('Long day. You did well', 'Did you eat dinner?') } else { @('今天忙了一天，辛苦了', '晚饭吃了没') }
+    return ($pool | Get-Random)
+  }
+  if ($bag -eq 'night') {
+    $pool = if ($en) { @('Wrapping up soon?', 'Time to wind down') } else { @('快收尾了，准备睡觉吧', '该收工啦') }
+    return ($pool | Get-Random)
+  }
+  if ($en) { return (@('What are you thinking about?', 'It is quiet here', 'Talk to me for a bit?') | Get-Random) }
+  return (@('在想什么呢', '有点安静呀', '要不要聊两句') | Get-Random)
+}
+
+function Get-FollowupLine {
+  $en = ($script:Lang -eq 'en')
+  $ctx = Get-LastHeartContext
+  $tags = @($ctx.tags)
+  if ($tags -contains 'tired') { if ($en) { return 'Did you manage to rest a bit?' } return '刚才说累，躺下歇了没？' }
+  if ($tags -contains 'sad') { if ($en) { return 'I am still here if you want to talk.' } return '不想说话也没关系，我在的' }
+  if ($tags -contains 'busy') { if ($en) { return 'Finished what you were doing?' } return '忙完了吗？' }
+  if ($tags -contains 'affection' -or $tags -contains 'praise') { if ($en) { return 'Still smiling because of what you said.' } return '还在想你刚才那句话' }
+  if ($en) { return 'Still there?' }
+  return '还在吗？'
+}
+
+function Should-StayQuiet {
+  if (-not $script:Settings.proactive) { return $true }
+  if ($script:PetHidden) { return $true }
+  if ($script:ChatOpen) { return $true }
+  if ($script:SettingsWin) { return $true }
+  if ($script:ReplyTimer -and $script:ReplyTimer.IsEnabled) { return $true }
+  if ($script:Chat.IsMouseOver) { return $true }
+  return $false
+}
+
+function Speak-Proactive {
+  if (Should-StayQuiet) { return }
+  if (-not $ProactiveTest -and ((Get-Date) - $script:LastSpokeAt).TotalMinutes -lt 2.5) { return }
+  $line = Get-ProactiveLine
+  if (-not $line) { return }
+  if ($line -eq $script:LastProactiveLine) { $line = Get-ProactiveLine }
+  $script:LastProactiveLine = $line
+  Hop
+  Show-Bubble $line 7
+  $script:LastSpokeAt = Get-Date
+  BootLog ('proactive: ' + $line)
+}
+
+function Schedule-Proactive([int]$ms = 0) {
+  if ($script:ProactiveTimer) { $script:ProactiveTimer.Stop(); $script:ProactiveTimer = $null }
+  $mins = [int]$script:Settings.proactiveMinutes
+  if ($mins -lt 3) { $mins = 3 }
+  if ($ms -le 0) {
+    if ($ProactiveTest) { $ms = 12000 }
+    else { $ms = [int]((Get-Random -Minimum ($mins * 0.7) -Maximum ($mins * 1.4)) * 60000) }
+  }
+  $t = New-Object System.Windows.Threading.DispatcherTimer
+  $t.Interval = [TimeSpan]::FromMilliseconds($ms)
+  $t.Add_Tick({
+    $script:ProactiveTimer.Stop()
+    try { Speak-Proactive } catch { BootLog ('proactive error: ' + $_.Exception.Message) }
+    Schedule-Proactive
+  })
+  $script:ProactiveTimer = $t
+  $t.Start()
+}
+
+function Start-Proactive {
+  if ($script:ProactiveTimer) { $script:ProactiveTimer.Stop(); $script:ProactiveTimer = $null }
+  if (-not $script:Settings.proactive) { BootLog 'proactive: disabled'; return }
+  BootLog ('proactive: every ~' + [int]$script:Settings.proactiveMinutes + 'min')
+  Schedule-Proactive
+}
+
+function Schedule-Followup {
+  if ($script:FollowupTimer) { $script:FollowupTimer.Stop(); $script:FollowupTimer = $null }
+  if (-not $script:Settings.proactive) { return }
+  $delay = if ($ProactiveTest) { 9000 } else { [int]((Get-Random -Minimum 7 -Maximum 16) * 60000) }
+  $t = New-Object System.Windows.Threading.DispatcherTimer
+  $t.Interval = [TimeSpan]::FromMilliseconds($delay)
+  $t.Add_Tick({
+    $script:FollowupTimer.Stop()
+    $script:FollowupTimer = $null
+    if (Should-StayQuiet) { return }
+    $line = Get-FollowupLine
+    if (-not $line) { return }
+    Hop
+    Show-Bubble $line 8
+    $script:LastSpokeAt = Get-Date
+    BootLog ('proactive: followup ' + $line)
+  })
+  $script:FollowupTimer = $t
+  $t.Start()
 }
 
 
@@ -1697,6 +1867,7 @@ $script:PetImg.Add_MouseMove({
 })
 
 $script:PetImg.Add_MouseLeftButtonUp({
+  Mark-UserAction
   $started = $script:DragStart
   $script:DragStart = $null
   if (-not $started) { return }
@@ -1730,7 +1901,7 @@ $pet.Add_MouseLeave({
 $script:Chat.Add_MouseEnter({ if ($script:LeaveTimer) { $script:LeaveTimer.Stop() } })
 $script:Chat.Add_MouseLeave({ if ($script:ChatOpen) { Start-LeaveTimer } })
 # 每次输入/获得焦点都取消收起计时，避免“打了几个字母就关掉”
-$script:ChatInput.Add_TextChanged({ if ($script:LeaveTimer) { $script:LeaveTimer.Stop() } })
+$script:ChatInput.Add_TextChanged({ Mark-UserAction; if ($script:LeaveTimer) { $script:LeaveTimer.Stop() } })
 $script:ChatInput.Add_GotKeyboardFocus({ if ($script:LeaveTimer) { $script:LeaveTimer.Stop() } })
 # 焦点离开输入框（点了别处）且没有内容时，才允许收起
 $script:ChatInput.Add_LostKeyboardFocus({ if ($script:ChatOpen) { Start-LeaveTimer } })
@@ -1776,6 +1947,15 @@ $settingsXaml = @'
       <CheckBox x:Name="OptWorkspace" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,10,0,0" Content="让她知道我在工作区忙什么（读最近一次摘要，默认关）"/>
       <CheckBox x:Name="OptAutostart" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="开机时自动出现"/>
       <CheckBox x:Name="OptEnglish" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="英文界面（English interface）"/>
+      <CheckBox x:Name="OptProactive" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="让她偶尔主动找我"/>
+      <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="主动间隔" FontFamily="Microsoft YaHei" FontSize="11.5" Foreground="#A8BCD8" VerticalAlignment="Center"/>
+        <TextBox Grid.Column="1" x:Name="NumProactive" Width="52" Margin="6,0,0,0" FontFamily="Microsoft YaHei" FontSize="12" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5" TextAlignment="Center"/>
+        <TextBlock Grid.Column="2" Text="分钟；安静时不打扰" FontFamily="Microsoft YaHei" FontSize="11.5" Foreground="#A8BCD8" Margin="6,0,0,0" VerticalAlignment="Center"/>
+      </Grid>
 
       <Grid Margin="0,10,0,0">
         <Grid.ColumnDefinitions>
@@ -1811,6 +1991,8 @@ function New-SettingsWindow {
   $w.FindName('OptWorkspace').IsChecked  = [bool]$s.knowWorkspace
   $w.FindName('OptAutostart').IsChecked  = [bool]$s.autostart
   $w.FindName('OptEnglish').IsChecked    = [bool]($script:Lang -eq 'en')
+  $w.FindName('OptProactive').IsChecked  = [bool]$s.proactive
+  $w.FindName('NumProactive').Text       = [string]$s.proactiveMinutes
   $w.FindName('NumKeep').Text            = [string]$s.memory.keepTurns
   $w.FindName('NumEvery').Text           = [string]$s.memory.compressEvery
   $w.FindName('NumBubble').Text          = [string]$s.bubbleSeconds
@@ -1830,6 +2012,8 @@ function New-SettingsWindow {
     $script:Settings.memory.enabled       = [bool]$w.FindName('OptMemory').IsChecked
     $script:Settings.knowWorkspace        = [bool]$w.FindName('OptWorkspace').IsChecked
     $script:Settings.autostart            = [bool]$w.FindName('OptAutostart').IsChecked
+    $script:Settings.proactive            = [bool]$w.FindName('OptProactive').IsChecked
+    $script:Settings.proactiveMinutes     = & $toInt $w.FindName('NumProactive').Text 25 3 240
     $script:Settings.memory.keepTurns     = & $toInt $w.FindName('NumKeep').Text 3 1 12
     $script:Settings.memory.compressEvery = & $toInt $w.FindName('NumEvery').Text 8 2 40
     $script:Settings.bubbleSeconds        = & $toInt $w.FindName('NumBubble').Text 6 1 30
@@ -1850,6 +2034,7 @@ function New-SettingsWindow {
 }
 
 function Show-Settings {
+  Mark-UserAction
   BootLog 'settings: open'
   $w = New-SettingsWindow
   try { $w.Owner = $pet } catch { }
@@ -2028,6 +2213,7 @@ $pet.Add_Loaded({
   Start-Anim
   $script:Timer.Start()
   Say-GreetingOnStart
+  Start-Proactive
   # Heavy startup bits run right after the first paint: the pet is on screen sooner,
   # which keeps the language-switch restart short.
   $script:WarmTimer = New-Object System.Windows.Threading.DispatcherTimer
