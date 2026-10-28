@@ -122,7 +122,7 @@ Keep `hideInAppWidget: true` if you do not want a second copy of the character i
 | Click the tray icon | bring her back / menu |
 
 Panel shows the mood value and face (≥80 delighted · ≥62 happy · ≥42 okay · ≥25 worried · else sad),
-the last judgement reason, seven emotion bars and the latest history entries. The bars are scored by the desktop chats themselves, so they move even if you never open DSH.
+the last judgement reason, seven emotion bars and the latest history entries. The bars are scored by the desktop chats themselves (7h half-life, with a small floor that scales with closeness), so they move even if you never open DSH and never sit at zero after a night's sleep.
 
 ## Settings (`widget/pet-settings.json`)
 

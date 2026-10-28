@@ -107,8 +107,23 @@ export function drift(e, t = now()) {
     }
   }
   const dims = { ...emptyDims(), ...(out.dims || {}) }
-  const decay = Math.exp(-minutes / 180 * Math.LN2)
-  for (const k of DIM_KEYS) dims[k] = clamp(Number(dims[k]) * decay, 0, 100)
+  // 慢慢回落：半衰期 7 小时，睡一觉起来还留着一点余温
+  const decay = Math.exp(-minutes / 420 * Math.LN2)
+  // 亲密关系会留一层底：不是“没有情绪”，而是“一直有点开心、有点安心、有点黏”
+  const aff = Number(out.affection) || 0
+  const floors = {
+    happy: 4 + aff * 0.10,
+    calm: 6 + aff * 0.04,
+    sweet: 3 + aff * 0.10,
+    heartache: 0,
+    worry: 0,
+    sad: 0,
+    jealous: 0,
+  }
+  for (const k of DIM_KEYS) {
+    const v = Number(dims[k]) * decay
+    dims[k] = clamp(Math.max(v, floors[k]), 0, 100)
+  }
   out.dims = dims
   out.valence = clamp(Number(out.valence), -100, 100)
   out.energy = clamp(Number(out.energy), 0, 100)
