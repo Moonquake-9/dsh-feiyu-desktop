@@ -160,6 +160,10 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
     } else if (Array.isArray(d.memories) && d.memories.length) {
       lines.push('你记得最近的互动：' + d.memories.slice(-3).map((m) => `对方说“${m.user}”，你说“${m.reply}”`).join('；') + '。可以自然地提起，别生硬复述。')
     }
+    const recentAction = (Array.isArray(d.memories) ? d.memories.slice().reverse().find((m) => m && m.action) : null)
+    if (recentAction) {
+      lines.push(`对方之前说要去「${recentAction.action.label}」；如果还没过太久，可以顺口问一句进展，别催。`)
+    }
     if (hasMood) {
       lines.push(`你现在的心情：${Math.round(mood)}/100（${labelOf(mood)}）` +
         (dimText ? `；七维情绪：${dimText}` : '') +
@@ -188,6 +192,10 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
       }
     } else if (Array.isArray(d.memories) && d.memories.length) {
       lines.push('Recent exchanges you remember: ' + d.memories.slice(-3).map((m) => `user: "${m.user}" / you: "${m.reply}"`).join('; '))
+    }
+    const recentActionEn = (Array.isArray(d.memories) ? d.memories.slice().reverse().find((m) => m && m.action) : null)
+    if (recentActionEn) {
+      lines.push(`Earlier the user said they were going to (${recentActionEn.action.label}). If it was recent, you may ask how it went - do not nag.`)
     }
     if (hasMood) {
       lines.push(`Your mood right now: ${Math.round(mood)}/100 (${labelOf(mood)})` +

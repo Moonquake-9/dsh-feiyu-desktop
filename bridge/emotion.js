@@ -133,6 +133,28 @@ export function drift(e, t = now()) {
   return out
 }
 
+const ACTIONS = [
+  { kind: 'meeting', label: '开会', re: /开(个)?会|会议|面试|组会/ },
+  { kind: 'meal', label: '吃饭', re: /吃(个|点|口|顿)?饭|午饭|晚饭|早饭|外卖|干饭|宵夜|去吃|去喝/ },
+  { kind: 'sleep', label: '睡觉', re: /睡(觉|一会|一下|会儿)|去睡|睡了|躺一下|补觉|午休/ },
+  { kind: 'class', label: '上课', re: /上课|听课|讲座|lecture|seminar/i },
+  { kind: 'study', label: '学习', re: /自习|写作业|复习|刷题|考试|看书|写论文|学习/ },
+  { kind: 'work', label: '忙工作', re: /上班|加班|忙(一下|一会|会儿)|工作|写代码|写文档|赶工|ddl/i },
+  { kind: 'gym', label: '运动', re: /健身|跑步|锻炼|游泳|打球|爬山|去练|运动/ },
+  { kind: 'shower', label: '洗澡', re: /洗(澡|漱|个澡)/ },
+  { kind: 'errand', label: '出门办事', re: /出门|办事|取快递|拿快递|买(个)?东西|去趟|去医院|见朋友|逛街|买东西/ },
+  { kind: 'commute', label: '路上', re: /地铁|公交|打车|开车|坐车|回宿舍|回实验室|回家|回学校/ },
+]
+
+/** “我去开个会” -> { kind, label }；没说要做什么就返回 null。 */
+export function detectAction(text) {
+  const s = String(text || '')
+  for (const a of ACTIONS) {
+    if (a.re.test(s)) return { kind: a.kind, label: a.label }
+  }
+  return null
+}
+
 function tagsOf(text) {
   const s = String(text || '')
   const hits = []
@@ -191,6 +213,8 @@ export function afterChat(prev, { text, reply, mood }) {
     valence: Math.round(Number(e.valence)),
     tags: hits.slice(0, 4),
   }
+  const action = detectAction(text)
+  if (action) { memory.action = action; e.lastAction = action }
   e.memories = [...(e.memories || []), memory].slice(-MAX_MEMORIES)
   e.updatedAt = t
   return { emotion: e, memory }

@@ -65,6 +65,9 @@ $script:ReplyId = ''
 $script:LastUserAction = Get-Date
 $script:LastSpokeAt = (Get-Date).AddMinutes(-30)
 $script:LastProactiveLine = ''
+$script:ActionAskedKey = ''
+$script:ActionAskedAt = (Get-Date).AddHours(-2)
+$script:ActionAskedCount = 0
 $script:ProactiveTimer = $null
 $script:FollowupTimer = $null
 $script:AppDir = $script:Root
@@ -1529,12 +1532,52 @@ function Get-LastHeartContext {
         $last = $mems[$mems.Count - 1]
         if ($last.tags) { $out.tags = @($last.tags) }
         if ($last.user) { $out.user = [string]$last.user }
+        if ($last.action) {
+          $out.actionKind = [string]$last.action.kind
+          $out.actionLabel = [string]$last.action.label
+          $out.actionAt = [int64]$last.at
+        }
         $at = [int64]$last.at
         if ($at -gt 0) { $out.gapMin = [int](([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $at) / 60000) }
       }
     }
   } catch { }
   return $out
+}
+
+function Get-ActionLine([string]$kind, [string]$label) {
+  $en = ($script:Lang -eq 'en')
+  $pool = switch ($kind) {
+    'meeting' { if ($en) { @('How did the meeting go?', 'Meeting finished? Hope it went well') } else { @('会开完了吗？顺利不顺利？', '会开完了吧？开得怎么样') } }
+    'meal'    { if ($en) { @('Did you actually eat?', 'Food first, work later') } else { @('饭吃完了没？别又饿着', '吃上饭了吗？先填饱肚子再说') } }
+    'sleep'   { if ($en) { @('Awake now?', 'Did you sleep well?') } else { @('睡醒了吗？睡得好不好', '睡醒了没——现在精神点了吧') } }
+    'class'   { if ($en) { @('Class over?', 'Tired after class?') } else { @('课上完了？累不累', '上完课了吧？要不要歇一下') } }
+    'study'   { if ($en) { @('How is the study going?', 'Take a break if it gets heavy') } else { @('学得怎么样了？别太拼', '学累了就歇一会儿') } }
+    'work'    { if ($en) { @('Done with work?', 'Do not push too hard') } else { @('忙完了吗？别太拼啊', '工作忙完了就歇会儿') } }
+    'gym'     { if ($en) { @('Workout done? Stretch a bit.', 'Remember to stretch') } else { @('练完了没？记得拉伸', '运动完了吧，记得拉伸一下') } }
+    'shower'  { if ($en) { @('All freshened up?', 'Feeling clean?') } else { @('洗完了？', '洗完了就舒服啦') } }
+    'errand'  { if ($en) { @('Did you get it done?', 'Everything went smoothly?') } else { @('事情办好了吗？', '办完了没？顺利吗') } }
+    'commute' { if ($en) { @('Arrived? Be careful on the road.', 'Reached yet?') } else { @('到了吗？路上小心', '到了没——路上小心') } }
+    default   { if ($en) { @(('How is the ' + $label + ' going?'), ('Did the ' + $label + ' work out?')) } else { @(('刚才说去「' + $label + '」，怎么样了？'), ('「' + $label + '」那件事弄完了吗？')) } }
+  }
+  return ($pool | Get-Random)
+}
+
+function Get-ActionLineIfFresh($ctx) {
+  if (-not $ctx.actionKind) { return $null }
+  if ($ctx.gapMin -lt 0 -or $ctx.gapMin -gt 300) { return $null }
+  $key = $ctx.actionKind + '|' + [string]$ctx.actionAt
+  if ($script:ActionAskedKey -eq $key) {
+    # 同一件事最多问两次，且两次之间至少隔 90 分钟
+    if ($script:ActionAskedCount -ge 2) { return $null }
+    if (((Get-Date) - $script:ActionAskedAt).TotalMinutes -lt 90) { return $null }
+    $script:ActionAskedCount++
+  } else {
+    $script:ActionAskedKey = $key
+    $script:ActionAskedCount = 1
+  }
+  $script:ActionAskedAt = Get-Date
+  return (Get-ActionLine $ctx.actionKind $ctx.actionLabel)
 }
 
 function Get-ProactiveLine {
@@ -1544,6 +1587,9 @@ function Get-ProactiveLine {
   $idle = ((Get-Date) - $script:LastUserAction).TotalMinutes
   $ctx = Get-LastHeartContext
   $tags = @($ctx.tags)
+  # 0) 他说要去干什么：隔一阵就问一句那件事
+  $act = Get-ActionLineIfFresh $ctx
+  if ($act) { return $act }
   # 1) 接着刚才的话说：这是最像“真人”的部分
   if ($ctx.gapMin -ge 0 -and $ctx.gapMin -le 120 -and $tags.Count -gt 0) {
     if ($tags -contains 'tired') { if ($en) { return 'You said you were tired — did you actually lie down?' } return '刚才说累，去躺会儿了吗？' }
@@ -1591,12 +1637,14 @@ function Get-FollowupLine {
   $en = ($script:Lang -eq 'en')
   $ctx = Get-LastHeartContext
   $tags = @($ctx.tags)
+  $act = Get-ActionLineIfFresh $ctx
+  if ($act) { return $act }
   if ($tags -contains 'tired') { if ($en) { return 'Did you manage to rest a bit?' } return '刚才说累，躺下歇了没？' }
   if ($tags -contains 'sad') { if ($en) { return 'I am still here if you want to talk.' } return '不想说话也没关系，我在的' }
   if ($tags -contains 'busy') { if ($en) { return 'Finished what you were doing?' } return '忙完了吗？' }
   if ($tags -contains 'affection' -or $tags -contains 'praise') { if ($en) { return 'Still smiling because of what you said.' } return '还在想你刚才那句话' }
-  if ($en) { return 'Still there?' }
-  return '还在吗？'
+  if ($en) { return (@('Still there?', 'What are you up to?', 'Need a break?') | Get-Random) }
+  return (@('还在吗？', '在忙什么呢', '要不要歇一下') | Get-Random)
 }
 
 function Should-StayQuiet {

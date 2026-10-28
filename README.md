@@ -43,7 +43,9 @@ calls inside the DSH Host process — the pet never touches your conversation co
 - **Emotion memory** — persistent affection/trust/energy that drift over time, plus a hot layer
   (last N turns) and a warm layer (model-compressed notes every M turns). No cold diary yet.
 - **She starts conversations** — after a quiet spell (about 25 minutes by default) she says something on her
-  own, and a few minutes after a chat she follows up on what you said (`还在吗？` / "did you manage to rest?").
+  own, and a few minutes after a chat she follows up on what you said.
+  She also remembers when you said you were going somewhere: tell her “I am off to a meeting / lunch / class”
+  and later she asks “how did the meeting go?” instead of a bare “still there?” (same thing at most twice, 90 min apart).
   Interval and on/off live in her settings (`proactive`, `proactiveMinutes`).
 - **Her own settings window** (right-click → settings): memory on/off, retain/compress cadence,
   “know what I'm busy with”, autostart, bubble seconds, refresh interval, model override.
