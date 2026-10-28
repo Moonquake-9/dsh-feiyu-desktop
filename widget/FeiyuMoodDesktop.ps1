@@ -1220,6 +1220,7 @@ function Hide-BubbleLater($seconds) {
 }
 
 function Show-Bubble($text, $seconds = -1) {
+  if ($script:PetHidden) { return }
   if ($seconds -lt 0) { $seconds = [int]$script:Settings.bubbleSeconds }
   if (-not $text) { return }
   # A reply from the previous turn may still have a hide timer armed; drop it.
@@ -1819,7 +1820,17 @@ public static class FgWin {
     RECT m = mi.rcMonitor;
     return r.Left <= m.Left + 1 && r.Top <= m.Top + 1 && r.Right >= m.Right - 1 && r.Bottom >= m.Bottom - 1;
   }
-}
+  public static string Describe(IntPtr hwnd) {
+    RECT r; RECT m;
+    if (!GetWindowRect(hwnd, out r)) return "no-rect";
+    IntPtr mon = MonitorFromWindow(hwnd, 2);
+    MONITORINFO mi = new MONITORINFO();
+    mi.cbSize = Marshal.SizeOf(mi);
+    if (!GetMonitorInfo(mon, ref mi)) return "no-monitor";
+    m = mi.rcMonitor;
+    bool fs = r.Left <= m.Left + 1 && r.Top <= m.Top + 1 && r.Right >= m.Right - 1 && r.Bottom >= m.Bottom - 1;
+    return string.Format("win={0},{1},{2},{3} mon={4},{5},{6},{7} fs={8}", r.Left, r.Top, r.Right, r.Bottom, m.Left, m.Top, m.Right, m.Bottom, fs);
+  }
 }
 "@
 }
@@ -1827,6 +1838,7 @@ public static class FgWin {
 
 $script:PetHidden = $false
 $script:HideOnFullscreen = $true
+$script:LastFgSig = ''
 
 function Hide-PetAll {
   if ($script:PetHidden) { return }
@@ -1864,6 +1876,11 @@ function Update-FullscreenGuard {
       # desktop / taskbar / shell surface is not a fullscreen app - just bring her back
       if ($script:PetHidden) { Show-PetAll }
       return
+    }
+    $sig = $cls + ' ' + [FgWin]::Describe($fg)
+    if ($sig -ne $script:LastFgSig) {
+      $script:LastFgSig = $sig
+      BootLog ('guard: fg ' + $sig)
     }
     $known = @($pet, $panel, $script:Bubble, $script:Chat, $script:Status)
     if ($script:SettingsWin) { $known += $script:SettingsWin }
@@ -2275,7 +2292,10 @@ $pet.Add_Loaded({
       $script:FgTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
       $script:FgTimer.Add_Tick({ Update-FullscreenGuard })
       $script:FgTimer.Start()
-    } catch { }
+      BootLog 'guard: started'
+    } catch {
+      BootLog ('guard: error ' + $_.Exception.Message)
+    }
   })
   $script:WarmTimer.Start()
   if ($Say) {
