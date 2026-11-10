@@ -11,7 +11,7 @@
  * 之所以用文件而不是 HTTP：Host 的 webServer 面向页面会话鉴权，外部进程调用麻烦；
  * 文件桥零依赖、不占端口、出错时能直接看文件。
  */
-import { promises as fs, readFileSync, existsSync, openSync, closeSync } from 'node:fs'
+import { promises as fs, readFileSync, existsSync, openSync, closeSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
@@ -56,10 +56,25 @@ function isCjk(s) {
   return /[\u4e00-\u9fff]/.test(String(s || ''))
 }
 
+let logBytes = -1
+function trimLog() {
+  try {
+    const txt = readFileSync(LOG, 'utf8')
+    const lines = txt.split('\n').slice(-600)
+    const body = lines.join('\n') + '\n'
+    writeFileSync(LOG, body)
+    logBytes = Buffer.byteLength(body)
+    fs.appendFile(LOG, `${new Date().toISOString().slice(11, 19)} log rotated (kept last 600 lines)\n`).catch(() => {})
+  } catch { /* ignore */ }
+}
 function log(line) {
   try {
     const stamp = new Date().toISOString().slice(11, 19)
-    fs.appendFile(LOG, `${stamp} ${line}\n`).catch(() => {})
+    const text = `${stamp} ${line}\n`
+    fs.appendFile(LOG, text).catch(() => {})
+    if (logBytes < 0) { try { logBytes = readFileSync(LOG).length } catch { logBytes = 0 } }
+    logBytes += Buffer.byteLength(text)
+    if (logBytes > 800000) { trimLog() }
   } catch { /* ignore */ }
 }
 

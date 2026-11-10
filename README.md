@@ -155,6 +155,9 @@ injected stylesheet, and can relaunch the desktop widget 4 s after DSH starts (`
 A watchdog in the bridge respawns the widget if its process dies, so quitting DSH no longer leaves
 you with no way to bring her back.
 
+Logs look after themselves: `_boot.log` is trimmed to the newest 1200 lines once it passes 256 KB,
+and `bridge.log` keeps its newest 600 lines once it passes 800 KB.
+
 ## Files
 
 ```

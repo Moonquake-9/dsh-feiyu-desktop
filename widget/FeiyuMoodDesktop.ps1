@@ -2397,6 +2397,20 @@ if ($TestShot) {
 }
 
 function BootLog($m) { try { Add-Content -LiteralPath (Join-Path $script:Root '_boot.log') -Value ((Get-Date).ToString('HH:mm:ss.fff') + ' ' + $m) -Encoding UTF8 } catch { } }
+function Trim-BootLog {
+  # keep the log from growing forever: once it passes 256 KB, keep only the newest 1200 lines
+  try {
+    $p = Join-Path $script:Root '_boot.log'
+    if (-not (Test-Path -LiteralPath $p)) { return }
+    $fi = Get-Item -LiteralPath $p
+    if ($fi.Length -le 262144) { return }
+    $tail = Get-Content -LiteralPath $p -Tail 1200 -ErrorAction Stop
+    [System.IO.File]::WriteAllLines($p, $tail)
+  } catch { }
+}
+
+Trim-BootLog
+
 if ($Render) {
   try {
     Update-Ui
