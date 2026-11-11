@@ -1734,11 +1734,22 @@ function Parse-CalendarSources([string]$text) {
         if (-not $line) { continue }
         $label = ''
         $src = $line
-        if ($line -match '^(.{1,40}?)\s*[|=]\s*(.+)$') {
+        $looksLikeSource = ($line -match '^(https?|webcal)://') -or ($line -match '^[A-Za-z]:[\\/]')
+        if ($line.IndexOf('|') -gt 0) {
+            $cut = $line.IndexOf('|')
+            $label = $line.Substring(0, $cut).Trim()
+            $src = $line.Substring($cut + 1).Trim()
+        } elseif ($looksLikeSource) {
+            $label = ''
+            $src = $line
+        } elseif ($line -match '^([^:/\s=]{1,40})\s*=\s*(.+)$') {
             $label = $matches[1].Trim()
             $src = $matches[2].Trim()
         }
-        if (-not $label) { $i++; $label = '日历' + $i }
+        if (-not $label) {
+            $i++
+            if ($script:Lang -eq 'en') { $label = 'Calendar ' + $i } else { $label = '日历' + $i }
+        }
         [void]$list.Add(@{ label = $label; src = $src })
     }
     return $list
