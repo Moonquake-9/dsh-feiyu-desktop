@@ -75,6 +75,8 @@ $script:AppDir = $script:Root
 $script:Launcher = Join-Path $script:Root 'launch.vbs'
 $script:DeskLink = Join-Path ([Environment]::GetFolderPath('Desktop')) '鱼的心情.lnk'
 $script:StartLink = Join-Path ([Environment]::GetFolderPath('Startup')) '鱼的心情.lnk'
+$script:IconDir = Join-Path $env:LOCALAPPDATA 'FeiyuDesktop'
+$script:IconPath = Join-Path $script:IconDir 'feiyu.ico'
 
 $DIM_KEYS   = @('happy','calm','sweet','heartache','worry','sad','jealous')
 $DIM_COLORS = @{ happy='#5DDC8A'; calm='#7AAADC'; sweet='#E28FC0'; heartache='#E0B070'; worry='#E8A25B'; sad='#7A96C8'; jealous='#C88FDC' }
@@ -135,10 +137,8 @@ function Set-Autostart([bool]$on) {
   try {
     $wsh = "$env:WINDIR\System32\wscript.exe"
     if ($on) {
-      if (-not (Test-Path -LiteralPath (Join-Path $script:Root 'feiyu.ico'))) {
-        New-IconFromPng (Join-Path $script:Assets 'feiyu.png') (Join-Path $script:Root 'feiyu.ico')
-      }
-      New-Lnk $script:StartLink $wsh ('"' + $script:Launcher + '"') (Join-Path $script:Root 'feiyu.ico') $script:Root '鱼的心情 · 桌面挂饰'
+      Ensure-Icon
+      New-Lnk $script:StartLink $wsh ('"' + $script:Launcher + '"') $script:IconPath $script:Root '鱼的心情 · 桌面挂饰'
     } elseif (Test-Path -LiteralPath $script:StartLink) {
       Remove-Item -LiteralPath $script:StartLink -Force
     }
@@ -177,6 +177,24 @@ function New-IconFromPng($png, $ico) {
   $bw.Flush(); $bw.Close(); $fs.Close()
 }
 
+function Ensure-Icon {
+  try {
+    if (-not (Test-Path -LiteralPath $script:IconDir)) {
+      New-Item -ItemType Directory -Path $script:IconDir -Force | Out-Null
+    }
+    $srcIco = Join-Path $script:Root 'feiyu.ico'
+    if (Test-Path -LiteralPath $srcIco) {
+      $need = $true
+      if (Test-Path -LiteralPath $script:IconPath) {
+        $need = ((Get-Item -LiteralPath $srcIco).Length -ne (Get-Item -LiteralPath $script:IconPath).Length)
+      }
+      if ($need) { Copy-Item -LiteralPath $srcIco -Destination $script:IconPath -Force }
+    } elseif (-not (Test-Path -LiteralPath $script:IconPath)) {
+      New-IconFromPng (Join-Path $script:Assets 'feiyu.png') $script:IconPath
+    }
+  } catch { }
+}
+
 function New-Lnk($path, $target, $arguments, $icon, $workdir, $desc) {
   $sh = New-Object -ComObject WScript.Shell
   $lnk = $sh.CreateShortcut($path)
@@ -190,7 +208,8 @@ function New-Lnk($path, $target, $arguments, $icon, $workdir, $desc) {
 
 if ($InstallShortcut -or $RemoveShortcut) {
   $wsh = "$env:WINDIR\System32\wscript.exe"
-  $ico = Join-Path $script:Root 'feiyu.ico'
+  Ensure-Icon
+  $ico = $script:IconPath
   if ($RemoveShortcut) {
     foreach ($p in @($script:DeskLink, $script:StartLink)) { if (Test-Path $p) { Remove-Item $p -Force } }
     Write-Output 'shortcuts removed'
@@ -510,7 +529,8 @@ public static extern bool SetProcessDPIAware();
 
 # 窗口图标（任务栏/Alt-Tab 用）
 try {
-  $icoPath = Join-Path $script:Root 'feiyu.ico'
+  Ensure-Icon
+$icoPath = $script:IconPath
   if (-not (Test-Path $icoPath)) { New-IconFromPng (Join-Path $script:Assets 'feiyu.png') $icoPath }
   $icoUri = [Uri]::new($icoPath)
   $pet.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create($icoUri)
@@ -2659,7 +2679,8 @@ $miStart.IsCheckable = $true
 $miStart.IsChecked = (Test-Path $script:StartLink)
 $miStart.Add_Click({
   $wsh = "$env:WINDIR\System32\wscript.exe"
-  $ico = Join-Path $script:Root 'feiyu.ico'
+  Ensure-Icon
+  $ico = $script:IconPath
   try {
     if (Test-Path $script:StartLink) { Remove-Item $script:StartLink -Force }
     else {
@@ -2705,7 +2726,8 @@ function Start-Tray {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $ni = New-Object System.Windows.Forms.NotifyIcon
-    $icoPath = Join-Path $script:Root 'feiyu.ico'
+    Ensure-Icon
+$icoPath = $script:IconPath
     if (-not (Test-Path -LiteralPath $icoPath)) { New-IconFromPng (Join-Path $script:Assets 'feiyu.png') $icoPath }
     $ni.Icon = New-Object System.Drawing.Icon $icoPath
     $ni.Text = ((L '鱼的心情 · 桌面挂饰') + ' · ' + (Get-VersionLine))
