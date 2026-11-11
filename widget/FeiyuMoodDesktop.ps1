@@ -211,6 +211,10 @@ $script:InstanceLock = $null
 $script:Handoff = $false
 $script:LockPath = Join-Path $script:Root 'widget.lock'
 $script:ReadyFlag = Join-Path $script:Root '_ready.flag'
+try {
+  $stopMarker = Join-Path $script:Root 'widget.stopped'
+  if (Test-Path -LiteralPath $stopMarker) { Remove-Item -LiteralPath $stopMarker -Force -ErrorAction SilentlyContinue }
+} catch { }
 $script:RestartFlag = Join-Path $script:Root '_restart.flag'
 if (-not $TestShot -and -not $Render) {
   Remove-Item $script:ReadyFlag -Force -ErrorAction SilentlyContinue
@@ -2668,6 +2672,13 @@ $miStart.Add_Click({
 $miQuit = New-Object System.Windows.Controls.MenuItem
 $miQuit.Header = (L '退出')
 $miQuit.Add_Click({
+  # 用户主动退出：留一个标记，别让桥的看门狗过 25 秒又把她拉起来
+  try {
+    $stopFile = Join-Path $script:Root 'widget.stopped'
+    $payload = [ordered]@{ at = (Get-Date).ToString('s'); reason = 'tray-quit' }
+    [System.IO.File]::WriteAllText($stopFile, (ConvertTo-Json -InputObject $payload), (New-Object System.Text.UTF8Encoding($false)))
+    BootLog ('quit: user stop marker written')
+  } catch { }
   Stop-Tray
   Save-Position
   $panel.Close(); $pet.Close()

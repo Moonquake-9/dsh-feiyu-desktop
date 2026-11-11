@@ -530,6 +530,8 @@ export function autoStartWidget(cfg) {
   const vbs = cfg.widgetVbs || (cfg.dir ? path.join(cfg.dir, '..', 'launch.vbs') : '')
   const pidFile = cfg.widgetPid || (cfg.dir ? path.join(cfg.dir, '..', 'widget.pid') : '')
   if (!vbs || !existsSync(vbs)) return { skipped: 'no-vbs', vbs }
+  const stopFile = pidFile ? path.join(path.dirname(pidFile), 'widget.stopped') : ''
+  if (stopFile && existsSync(stopFile)) return { skipped: 'user-stop' }
   if (pidFile && widgetRunning(pidFile) && !cfg.force) return { skipped: 'running' }
   const lockFile = pidFile ? path.join(path.dirname(pidFile), 'widget.lock') : ''
   if (lockFile && instanceLocked(lockFile)) return { skipped: 'locked' }
