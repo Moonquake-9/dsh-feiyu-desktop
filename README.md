@@ -168,6 +168,15 @@ She can read your calendar and speak up before an event starts — no DSH window
 
 Ask her "what's on my schedule today?" and she answers from the same data; when an event is close she pops a bubble like *"还有 7 分钟：组会（测试）（13:31 · Z211）"*.
 
+**More than one calendar?** One per line, `name|link` (the name is just a label):
+
+```
+Apple 日历|https://p01-calendarws.icloud.com/...
+理大邮箱|https://outlook.office365.com/owa/calendar/.../calendar.ics
+```
+
+With several sources the bubble and her answers include the source, e.g. *"还有 12 分钟：〔Apple 日历〕牙医预约（13:43 · 旺角）"*; a single source gets no prefix. The old single-link config still works.
+
 The link can be a **secret** (it usually grants read access to the calendar), so it is stored in `widget/calendar.json`, which is git-ignored and never synced into this repository. The parsed agenda is written to `bridge/agenda.json` for the chat bridge; both files stay on your machine.
 
 How to get the link:

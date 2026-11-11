@@ -255,7 +255,7 @@ $script:I18N = [ordered]@{
     '看我的日历，提前提醒日程' = 'Read my calendar and remind me about events'
     '提前' = 'Remind'
     '分钟提醒' = 'min before'
-    '日历订阅地址（.ics 链接或本地文件；留空 = 不开）' = 'Calendar .ics link or local file (leave empty to disable)'
+    '日历订阅（一行一个：名称|.ics 链接或本地文件；留空 = 不开）' = 'Calendars, one per line: name | .ics link or local file (empty = off)'
   '气泡停留' = 'Bubble stays'
   '秒；心情刷新' = 's; mood refresh'
   '毫秒' = 'ms'
@@ -1726,15 +1726,43 @@ function Schedule-Followup {
 
 
 # ---------- calendar reminders ----------
+function Parse-CalendarSources([string]$text) {
+    $list = New-Object System.Collections.ArrayList
+    $i = 0
+    foreach ($rawLine in ([string]$text -split "\r?\n")) {
+        $line = $rawLine.Trim()
+        if (-not $line) { continue }
+        $label = ''
+        $src = $line
+        if ($line -match '^(.{1,40}?)\s*[|=]\s*(.+)$') {
+            $label = $matches[1].Trim()
+            $src = $matches[2].Trim()
+        }
+        if (-not $label) { $i++; $label = '日历' + $i }
+        [void]$list.Add(@{ label = $label; src = $src })
+    }
+    return $list
+}
+
 function Read-CalendarConfig {
-    $cfg = @{ enabled = $false; leadMinutes = 20; source = '' }
+    $cfg = @{ enabled = $false; leadMinutes = 20; sources = (New-Object System.Collections.ArrayList) }
     try {
         $p = Join-Path $script:Root 'calendar.json'
         if (Test-Path -LiteralPath $p) {
             $j = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($null -ne $j.enabled) { $cfg.enabled = [bool]$j.enabled }
             if ($null -ne $j.leadMinutes) { $cfg.leadMinutes = [int]$j.leadMinutes }
-            if ($null -ne $j.source) { $cfg.source = [string]$j.source }
+            if ($j.sources) {
+                foreach ($srcItem in @($j.sources)) {
+                    $src = [string]$srcItem.src
+                    if (-not $src) { continue }
+                    $lbl = [string]$srcItem.label
+                    if (-not $lbl) { $lbl = '日历' }
+                    [void]$cfg.sources.Add(@{ label = $lbl; src = $src })
+                }
+            } elseif ($null -ne $j.source -and [string]$j.source) {
+                [void]$cfg.sources.Add(@{ label = '日历'; src = [string]$j.source })
+            }
         }
     } catch { }
     return $cfg
@@ -1743,12 +1771,17 @@ function Read-CalendarConfig {
 function Save-CalendarConfig($cfg) {
     try {
         $p = Join-Path $script:Root 'calendar.json'
+        $srcs = New-Object System.Collections.ArrayList
+        foreach ($srcItem in @($cfg.sources)) {
+            if (-not $srcItem -or -not [string]$srcItem.src) { continue }
+            [void]$srcs.Add([ordered]@{ label = [string]$srcItem.label; src = [string]$srcItem.src })
+        }
         $j = [ordered]@{
             enabled     = [bool]$cfg.enabled
             leadMinutes = [int]$cfg.leadMinutes
-            source      = [string]$cfg.source
+            sources     = $srcs
         }
-        [System.IO.File]::WriteAllText($p, ($j | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($p, ($j | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
     } catch { BootLog ('calendar: save error ' + $_.Exception.Message) }
 }
 
@@ -1911,23 +1944,96 @@ function Get-RecurrenceStarts([datetime]$start, $rule, [datetime]$from, [datetim
     return $res
 }
 
-function Get-CalendarSourceText($cfg, [switch]$Force) {
-    $raw = ''
-    try {
-        if ($cfg.source -match '^https?://') {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            $raw = (Invoke-WebRequest -Uri $cfg.source -UseBasicParsing -TimeoutSec 20).Content
-        } elseif ($cfg.source -and (Test-Path -LiteralPath $cfg.source)) {
-            $raw = [System.IO.File]::ReadAllText($cfg.source, [System.Text.Encoding]::UTF8)
+function Get-CalendarTextList($cfg) {
+    $res = New-Object System.Collections.ArrayList
+    $cacheDir = Join-Path $script:Root 'calendar-cache'
+    foreach ($srcItem in @($cfg.sources)) {
+        $src = [string]$srcItem.src
+        if (-not $src) { continue }
+        $raw = ''
+        try {
+            if ($src -match '^https?://') {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                $raw = (Invoke-WebRequest -Uri $src -UseBasicParsing -TimeoutSec 20).Content
+            } elseif (Test-Path -LiteralPath $src) {
+                $raw = [System.IO.File]::ReadAllText($src, [System.Text.Encoding]::UTF8)
+            }
+        } catch { BootLog ('calendar: fetch error [' + [string]$srcItem.label + '] ' + $_.Exception.Message) }
+        $safe = ([string]$srcItem.label) -replace '[^\w\u4e00-\u9fa5-]', '_'
+        if (-not $safe) { $safe = 'cal' }
+        $cacheFile = Join-Path $cacheDir ($safe + '.ics')
+        if ($raw) {
+            try {
+                if (-not (Test-Path -LiteralPath $cacheDir)) { New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null }
+                [System.IO.File]::WriteAllText($cacheFile, $raw, (New-Object System.Text.UTF8Encoding($false)))
+            } catch { }
+        } elseif (Test-Path -LiteralPath $cacheFile) {
+            try { $raw = [System.IO.File]::ReadAllText($cacheFile, [System.Text.Encoding]::UTF8) } catch { }
         }
-    } catch { BootLog ('calendar: fetch error ' + $_.Exception.Message) }
-    $cache = Join-Path $script:Root 'calendar-cache.ics'
-    if ($raw) {
-        try { [System.IO.File]::WriteAllText($cache, $raw, (New-Object System.Text.UTF8Encoding($false))) } catch { }
-    } elseif (Test-Path -LiteralPath $cache) {
-        try { $raw = [System.IO.File]::ReadAllText($cache, [System.Text.Encoding]::UTF8) } catch { }
+        if ($raw) { [void]$res.Add(@{ label = [string]$srcItem.label; text = $raw }) }
     }
-    return $raw
+    return $res
+}
+
+function Convert-IcsTextToEvents([string]$text, [string]$calLabel, [datetime]$from, [datetime]$to) {
+    $res = New-Object System.Collections.ArrayList
+    $inEvent = $false
+    $cur = $null
+    foreach ($line in (Unfold-Ics $text)) {
+        $l = [string]$line
+        if ($l -eq 'BEGIN:VEVENT') { $inEvent = $true; $cur = @{ exdates = (New-Object System.Collections.ArrayList) }; continue }
+        if ($l -eq 'END:VEVENT') {
+            $inEvent = $false
+            if ($cur -and $cur.ContainsKey('DTSTART') -and $cur.ContainsKey('TITLE')) {
+                $st = [datetime]$cur['DTSTART']
+                $en = if ($cur.ContainsKey('DTEND')) { [datetime]$cur['DTEND'] } else { $st.AddHours(1) }
+                $dur = $en - $st
+                $durMin = 60
+                if ($cur['ALLDAY']) { $durMin = 1440 }
+                if ($dur.TotalMinutes -le 0) { $dur = [TimeSpan]::FromMinutes($durMin) }
+                $starts = if ($cur.ContainsKey('RRULE')) { Get-RecurrenceStarts $st $cur['RRULE'] $from $to } else { $r = New-Object System.Collections.ArrayList; [void]$r.Add($st); $r }
+                foreach ($occ in $starts) {
+                    if ($occ -lt $from -or $occ -gt $to) { continue }
+                    $skip = $false
+                    foreach ($ex in $cur['exdates']) { if ([math]::Abs(($ex - $occ).TotalMinutes) -lt 1) { $skip = $true; break } }
+                    if ($skip) { continue }
+                    [void]$res.Add([pscustomobject]@{
+                        id     = [string]$cur['UID']
+                        cal    = $calLabel
+                        start  = $occ
+                        end    = $occ.Add($dur)
+                        allDay = [bool]$cur['ALLDAY']
+                        title  = [string]$cur['TITLE']
+                        where  = [string]$cur['WHERE']
+                    })
+                }
+            }
+            $cur = $null
+            continue
+        }
+        if (-not $inEvent -or -not $cur) { continue }
+        $idx = $l.IndexOf(':')
+        if ($idx -lt 1) { continue }
+        $left = $l.Substring(0, $idx)
+        $val = $l.Substring($idx + 1)
+        $parts = $left.Split(';')
+        $name = $parts[0].ToUpper()
+        $tz = ''
+        foreach ($pp in $parts) { if ($pp -like 'TZID=*') { $tz = $pp.Substring(5) } }
+        if ($name -eq 'SUMMARY') { $cur['TITLE'] = Unescape-IcsText $val }
+        elseif ($name -eq 'LOCATION') { $cur['WHERE'] = Unescape-IcsText $val }
+        elseif ($name -eq 'UID') { $cur['UID'] = $val }
+        elseif ($name -eq 'DTSTART') { $d = Convert-IcsDate $val $tz; $cur['DTSTART'] = $d.dt; $cur['ALLDAY'] = $d.allDay }
+        elseif ($name -eq 'DTEND') { $d = Convert-IcsDate $val $tz; $cur['DTEND'] = $d.dt }
+        elseif ($name -eq 'RRULE') { $cur['RRULE'] = Convert-RRule $val }
+        elseif ($name -eq 'EXDATE') {
+            foreach ($piece in $val.Split(',')) {
+                $d = Convert-IcsDate $piece $tz
+                [void]$cur['exdates'].Add($d.dt)
+            }
+        }
+    }
+    return $res
 }
 
 function Get-CalendarEvents([switch]$Force) {
@@ -1939,69 +2045,22 @@ function Get-CalendarEvents([switch]$Force) {
             $c = Get-Content -LiteralPath $cacheJson -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($c.updatedAt) {
                 $age = ($now - [datetime]::Parse([string]$c.updatedAt)).TotalMinutes
-                if ($age -lt 10) { return @($c.events) }
+                if ($age -lt 10) {
+                    $script:CalSourceCount = [int]$c.sourceCount
+                    return @($c.events)
+                }
             }
         } catch { }
     }
     $events = New-Object System.Collections.ArrayList
-    $raw = Get-CalendarSourceText $cfg -Force:$Force
-    if ($raw) {
-        $from = $now.Date.AddDays(-1)
-        $to = $now.Date.AddDays(21)
-        $inEvent = $false
-        $cur = $null
-        foreach ($line in (Unfold-Ics $raw)) {
-            $l = [string]$line
-            if ($l -eq 'BEGIN:VEVENT') { $inEvent = $true; $cur = @{ exdates = (New-Object System.Collections.ArrayList) }; continue }
-            if ($l -eq 'END:VEVENT') {
-                $inEvent = $false
-                if ($cur -and $cur.ContainsKey('DTSTART') -and $cur.ContainsKey('TITLE')) {
-                    $st = [datetime]$cur['DTSTART']
-                    $en = if ($cur.ContainsKey('DTEND')) { [datetime]$cur['DTEND'] } else { $st.AddHours(1) }
-                    $dur = $en - $st
-                    $durMin = 60
-                    if ($cur['ALLDAY']) { $durMin = 1440 }
-                    if ($dur.TotalMinutes -le 0) { $dur = [TimeSpan]::FromMinutes($durMin) }
-                    $starts = if ($cur.ContainsKey('RRULE')) { Get-RecurrenceStarts $st $cur['RRULE'] $from $to } else { $r = New-Object System.Collections.ArrayList; [void]$r.Add($st); $r }
-                    foreach ($occ in $starts) {
-                        $skip = $false
-                        foreach ($ex in $cur['exdates']) { if ([math]::Abs(($ex - $occ).TotalMinutes) -lt 1) { $skip = $true; break } }
-                        if ($skip) { continue }
-                        [void]$events.Add([pscustomobject]@{
-                            id     = [string]$cur['UID']
-                            start  = $occ
-                            end    = $occ.Add($dur)
-                            allDay = [bool]$cur['ALLDAY']
-                            title  = [string]$cur['TITLE']
-                            where  = [string]$cur['WHERE']
-                        })
-                    }
-                }
-                $cur = $null
-                continue
-            }
-            if (-not $inEvent -or -not $cur) { continue }
-            $idx = $l.IndexOf(':')
-            if ($idx -lt 1) { continue }
-            $left = $l.Substring(0, $idx)
-            $val = $l.Substring($idx + 1)
-            $parts = $left.Split(';')
-            $name = $parts[0].ToUpper()
-            $tz = ''
-            foreach ($pp in $parts) { if ($pp -like 'TZID=*') { $tz = $pp.Substring(5) } }
-            if ($name -eq 'SUMMARY') { $cur['TITLE'] = Unescape-IcsText $val }
-            elseif ($name -eq 'LOCATION') { $cur['WHERE'] = Unescape-IcsText $val }
-            elseif ($name -eq 'UID') { $cur['UID'] = $val }
-            elseif ($name -eq 'DTSTART') { $d = Convert-IcsDate $val $tz; $cur['DTSTART'] = $d.dt; $cur['ALLDAY'] = $d.allDay }
-            elseif ($name -eq 'DTEND') { $d = Convert-IcsDate $val $tz; $cur['DTEND'] = $d.dt }
-            elseif ($name -eq 'RRULE') { $cur['RRULE'] = Convert-RRule $val }
-            elseif ($name -eq 'EXDATE') {
-                foreach ($piece in $val.Split(',')) {
-                    $d = Convert-IcsDate $piece $tz
-                    [void]$cur['exdates'].Add($d.dt)
-                }
-            }
-        }
+    $texts = @(Get-CalendarTextList $cfg)
+    $script:CalSourceCount = $texts.Count
+    $from = $now.Date.AddDays(-1)
+    $to = $now.Date.AddDays(21)
+    foreach ($t in $texts) {
+        try {
+            foreach ($e in @(Convert-IcsTextToEvents $t.text $t.label $from $to)) { [void]$events.Add($e) }
+        } catch { BootLog ('calendar: parse error [' + [string]$t.label + '] ' + $_.Exception.Message) }
     }
     $arr = @($events | Sort-Object { $_.start })
     try {
@@ -2009,6 +2068,7 @@ function Get-CalendarEvents([switch]$Force) {
         foreach ($e in $arr) {
             [void]$plain.Add([ordered]@{
                 id     = [string]$e.id
+                cal    = [string]$e.cal
                 start  = ([datetime]$e.start).ToString('s')
                 end    = ([datetime]$e.end).ToString('s')
                 allDay = [bool]$e.allDay
@@ -2016,10 +2076,10 @@ function Get-CalendarEvents([switch]$Force) {
                 where  = [string]$e.where
             })
         }
-        $out = [ordered]@{ updatedAt = $now.ToString('s'); events = $plain }
+        $out = [ordered]@{ updatedAt = $now.ToString('s'); sourceCount = $texts.Count; events = $plain }
         [System.IO.File]::WriteAllText($cacheJson, ($out | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
     } catch { }
-    BootLog ('calendar: parsed ' + $arr.Count + ' occurrences')
+    BootLog ('calendar: parsed ' + $arr.Count + ' occurrences from ' + $texts.Count + ' source(s)')
     return $arr
 }
 
@@ -2037,11 +2097,12 @@ function Write-AgendaForBridge($events) {
                 end    = ([datetime]$e.end).ToString('s')
                 title  = [string]$e.title
                 where  = [string]$e.where
+                cal    = [string]$e.cal
                 allDay = [bool]$e.allDay
             })
             if ($list.Count -ge 60) { break }
         }
-        $out = [ordered]@{ updatedAt = $now.ToString('s'); events = $list }
+        $out = [ordered]@{ updatedAt = $now.ToString('s'); sourceCount = $script:CalSourceCount; events = $list }
         [System.IO.File]::WriteAllText((Join-Path $dir 'agenda.json'), ($out | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
     } catch { }
 }
@@ -2053,8 +2114,10 @@ function Show-CalendarReminder($ev, [int]$minutes) {
     $clock = ([datetime]$ev.start).ToString($when)
     $where = ''
     if ($ev.where) { $where = ' · ' + [string]$ev.where }
-    $text = if ($minutes -le 1) { '现在就是「' + $title + '」的时间啦（' + $clock + $where + '）' }
-            else { '还有 ' + $minutes + ' 分钟：' + $title + '（' + $clock + $where + '）' }
+    $cal = ''
+    if ($script:CalSourceCount -gt 1 -and $ev.cal) { $cal = '〔' + [string]$ev.cal + '〕' }
+    $text = if ($minutes -le 1) { $cal + '现在就是「' + $title + '」的时间啦（' + $clock + $where + '）' }
+            else { '还有 ' + $minutes + ' 分钟：' + $cal + $title + '（' + $clock + $where + '）' }
     try { Show-Bubble $text 14; Hop } catch { }
     BootLog ('calendar: remind ' + $text)
 }
@@ -2116,8 +2179,8 @@ function Start-Calendar {
     if ($script:CalTimer) { $script:CalTimer.Stop(); $script:CalTimer = $null }
     $cfg = Read-CalendarConfig
     if (-not $cfg.enabled) { BootLog 'calendar: disabled'; return }
-    if (-not $cfg.source) { BootLog 'calendar: no source'; return }
-    BootLog ('calendar: start lead=' + $cfg.leadMinutes + 'min')
+    if (-not @($cfg.sources).Count) { BootLog 'calendar: no source'; return }
+    BootLog ('calendar: start lead=' + $cfg.leadMinutes + 'min, ' + @($cfg.sources).Count + ' source(s)')
     try {
         $events = @(Get-CalendarEvents -Force)
         Write-AgendaForBridge $events
@@ -2434,8 +2497,8 @@ $settingsXaml = @'
           <TextBox Grid.Column="1" x:Name="NumCalLead" Width="52" Margin="6,0,0,0" FontFamily="Microsoft YaHei" FontSize="12" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5" TextAlignment="Center"/>
           <TextBlock Grid.Column="2" Text="分钟提醒" FontFamily="Microsoft YaHei" FontSize="11.5" Foreground="#A8BCD8" Margin="6,0,0,0" VerticalAlignment="Center"/>
         </Grid>
-        <TextBlock Text="日历订阅地址（.ics 链接或本地文件；留空 = 不开）" FontFamily="Microsoft YaHei" FontSize="11" Foreground="#8FA6C8" Margin="0,8,0,4"/>
-        <TextBox x:Name="CalSource" FontFamily="Microsoft YaHei" FontSize="11" Padding="6,4" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5"/>
+        <TextBlock Text="日历订阅（一行一个：名称|.ics 链接或本地文件；留空 = 不开）" FontFamily="Microsoft YaHei" FontSize="11" Foreground="#8FA6C8" Margin="0,8,0,4"/>
+        <TextBox x:Name="CalSource" Height="62" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Microsoft YaHei" FontSize="11" Padding="6,4" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5"/>
       <CheckBox x:Name="OptProactive" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="让她偶尔主动找我"/>
       <Grid Margin="0,8,0,0">
         <Grid.ColumnDefinitions>
@@ -2485,7 +2548,12 @@ function New-SettingsWindow {
     $calCfg = Read-CalendarConfig
     $w.FindName('OptCalendar').IsChecked = [bool]$calCfg.enabled
     $w.FindName('NumCalLead').Text       = [string]$calCfg.leadMinutes
-    $w.FindName('CalSource').Text        = [string]$calCfg.source
+    $srcLines = New-Object System.Collections.ArrayList
+    foreach ($srcItem in @($calCfg.sources)) {
+        if (-not $srcItem.src) { continue }
+        [void]$srcLines.Add([string]$srcItem.label + '|' + [string]$srcItem.src)
+    }
+    $w.FindName('CalSource').Text        = ($srcLines -join "`r`n")
   $w.FindName('NumKeep').Text            = [string]$s.memory.keepTurns
   $w.FindName('NumEvery').Text           = [string]$s.memory.compressEvery
   $w.FindName('NumBubble').Text          = [string]$s.bubbleSeconds
@@ -2511,7 +2579,7 @@ function New-SettingsWindow {
         Save-CalendarConfig @{
             enabled     = [bool]$w.FindName('OptCalendar').IsChecked
             leadMinutes = & $toInt $w.FindName('NumCalLead').Text 20 3 180
-            source      = ([string]$w.FindName('CalSource').Text).Trim()
+            sources     = (Parse-CalendarSources ([string]$w.FindName('CalSource').Text))
         }
         Start-Calendar
     } catch { BootLog ('calendar: save/start error ' + $_.Exception.Message) }

@@ -10,6 +10,8 @@
     "bubbleSeconds":  6,
     "refreshMs":  1200,
     "autostart":  true,
+    "proactive":  true,
+    "proactiveMinutes":  25,
     "model":  "",
     "lang":  "zh"
 }

@@ -394,7 +394,7 @@ function readAgenda() {
     const list = Array.isArray(j?.events) ? j.events : []
     const now = Date.now()
     return list
-      .map((e) => ({ start: new Date(e.start), end: new Date(e.end), title: String(e.title || ''), where: String(e.where || ''), allDay: !!e.allDay }))
+      .map((e) => ({ start: new Date(e.start), end: new Date(e.end), title: String(e.title || ''), where: String(e.where || ''), cal: String(e.cal || ''), allDay: !!e.allDay }))
       .filter((e) => e.title && !Number.isNaN(e.start.getTime()))
       .filter((e) => e.start.getTime() >= now - 3600e3 && e.start.getTime() <= now + 36 * 3600e3)
       .sort((a, b) => a.start - b.start)
@@ -409,13 +409,24 @@ function agendaLines(agenda, cn) {
   if (!Array.isArray(agenda) || !agenda.length) return out
   const pad = (n) => String(n).padStart(2, '0')
   const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const dayLabel = (d) => {
+    const a = new Date(); a.setHours(0, 0, 0, 0)
+    const b = new Date(d); b.setHours(0, 0, 0, 0)
+    const diff = Math.round((b - a) / 86400000)
+    if (diff === 0) return cn ? '今天' : 'today'
+    if (diff === 1) return cn ? '明天' : 'tomorrow'
+    if (diff === 2) return cn ? '后天' : 'in 2 days'
+    return `${b.getMonth() + 1}/${b.getDate()}`
+  }
   out.push(cn ? '对方本机的日历（对方问起或快到时候才提，别主动播报流水账）：' : "The user's local calendar (only mention when asked or when it matters):")
   for (const e of agenda.slice(0, 6)) {
     const when = e.allDay ? (cn ? '全天' : 'all day') : `${hhmm(e.start)}-${hhmm(e.end)}`
+    const day = dayLabel(e.start)
+    const cal = e.cal ? (cn ? `[${e.cal}] ` : `[${e.cal}] `) : ''
     const mins = Math.round((e.start.getTime() - Date.now()) / 60000)
     const left = mins > 0 && mins < 180 ? (cn ? `（还有 ${mins} 分钟）` : ` (in ${mins} min)`) : ''
     const where = e.where ? (cn ? `（${e.where}）` : ` (${e.where})`) : ''
-    out.push(`- ${when} ${e.title}${where}${left}`)
+    out.push(`- ${cal}${day} ${when} ${e.title}${where}${left}`)
   }
   out.push(cn ? '对方问你今天有什么安排时，照上面简短回答；快到的日程可以顺口提醒，但不要说"我查了你的日历"。' : 'If they ask about their day, answer briefly from this list; a soon event can be gently mentioned, but do not say you looked at their calendar.')
   return out
