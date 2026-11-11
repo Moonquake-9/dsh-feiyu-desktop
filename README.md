@@ -158,6 +158,26 @@ you with no way to bring her back.
 Logs look after themselves: `_boot.log` is trimmed to the newest 1200 lines once it passes 256 KB,
 and `bridge.log` keeps its newest 600 lines once it passes 800 KB.
 
+## Calendar reminders
+
+She can read your calendar and speak up before an event starts — no DSH window needed.
+
+1. Get an `.ics` link for your calendar (any calendar app can publish one — see below).
+2. Right-click her → **Her settings…** → tick **Read my calendar and remind me about events**, paste the link, choose how many minutes ahead, **Save**.
+3. A local `.ics` file path works too, which is handy for testing.
+
+Ask her "what's on my schedule today?" and she answers from the same data; when an event is close she pops a bubble like *"还有 7 分钟：组会（测试）（13:31 · Z211）"*.
+
+The link can be a **secret** (it usually grants read access to the calendar), so it is stored in `widget/calendar.json`, which is git-ignored and never synced into this repository. The parsed agenda is written to `bridge/agenda.json` for the chat bridge; both files stay on your machine.
+
+How to get the link:
+
+* **Outlook / Microsoft 365 (incl. PolyU mail)** — Outlook on the web → Calendar → Settings (gear) → Calendar → Shared calendars → *Publish a calendar* → pick the calendar, permission *Can view all details*, **Publish** → copy the **ICS** link.
+* **Google Calendar** — Settings → click your calendar → *Integrate calendar* → copy **Secret address in iCal format**.
+* **Apple Calendar** — right-click the calendar → Share Calendar… → tick *Public Calendar*, copy the `webcal://` link and change it to `https://`.
+
+Recurring events (daily/weekly/…), all-day events and time-zone IDs are handled; very exotic RRULEs may be skipped.
+
 ## Files
 
 ```

@@ -8,4 +8,7 @@ widget/feiyu.ico
 *.lnk
 # build leftovers
 _dev/
-
+widget/calendar.json
+widget/calendar-cache.ics
+widget/calendar-events.json
+widget/calendar-seen.json

@@ -139,7 +139,7 @@ function timeLines(lang, lastAt) {
   return out
 }
 
-function buildSystem(req, persona, emo, memory, timeCtx) {
+function buildSystem(req, persona, emo, memory, timeCtx, agenda) {
   const emoMood = Number(emo && emo.moodView)
   const mood = Number.isFinite(emoMood) && emoMood > 0 ? emoMood : Number(req?.mood)
   const hasMood = Number.isFinite(mood) && mood > 0
@@ -155,7 +155,7 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
   const d = describe(emo)
   const busy = !!(emo && emo.busy)
   if (cn) {
-    lines.push(`你是「${who}」，一只住在 ${owner} 电脑桌面上的小鲸鱼少女——戴着鲸鱼兜帽、蓝头发、有点小傲娇但心软。你不是助手，不提供工作帮助，你只是陪着对方说话。`)
+    lines.push(`你是「${who}」，一只住在 ${owner} 电脑桌面上的小鲸鱼少女——戴着鲸鱼兜帽、蓝头发、有点小傲娇但心软。你不是工作助手：不写代码、不做正经工作，只是陪着对方说话；但你会记得对方的日程，快到了会提醒一句。`)
     if (persona?.relationNote) {
       lines.push(`你和对方的关系设定：${persona.relationNote}`)
     }
@@ -163,6 +163,7 @@ function buildSystem(req, persona, emo, memory, timeCtx) {
     lines.push(`你的情绪状态：${d.moodWord}；${d.energyWord}；对对方的依赖程度：${d.affWord}（关系：${d.relationText}）。`)
     lines.push('情绪要自然流露、可以有自己的小脾气和小得意，但不要每句都夸对方、不要复读同样的关心句式，别报数字、别解释"我的心情值"。')
     if (timeCtx) { for (const t of timeLines('zh', timeCtx.lastAt)) lines.push(t) }
+    for (const t of agendaLines(agenda, true)) lines.push(t)
     if (Array.isArray(memory) && memory.length) {
       for (const part of memory) {
         if (part.kind === 'warm' && part.text) {
@@ -275,7 +276,8 @@ async function answer(ctx, config, req, outFile) {
   const lastTurnAt = (mem && Array.isArray(mem.turns) && mem.turns.length)
     ? Number(mem.turns[mem.turns.length - 1].at) || 0
     : Number(emoPrev && emoPrev.updatedAt) || 0
-  const system = buildSystem(req, persona, moodCtx, memParts, { lastAt: lastTurnAt })
+  const agenda = readAgenda()
+  const system = buildSystem(req, persona, moodCtx, memParts, { lastAt: lastTurnAt }, agenda)
   const messages = [{
     role: 'user',
     id: randomUUID(),
@@ -381,6 +383,42 @@ async function readWorkspaceHint() {
     }
   } catch { /* ignore */ }
   return ''
+}
+
+/** 桌面挂件把本地日历展开后写到 bridge/agenda.json，这里只读不写。 */
+function readAgenda() {
+  try {
+    const file = path.join(ROOT, 'agenda.json')
+    if (!existsSync(file)) return []
+    const j = JSON.parse(readFileSync(file, 'utf8'))
+    const list = Array.isArray(j?.events) ? j.events : []
+    const now = Date.now()
+    return list
+      .map((e) => ({ start: new Date(e.start), end: new Date(e.end), title: String(e.title || ''), where: String(e.where || ''), allDay: !!e.allDay }))
+      .filter((e) => e.title && !Number.isNaN(e.start.getTime()))
+      .filter((e) => e.start.getTime() >= now - 3600e3 && e.start.getTime() <= now + 36 * 3600e3)
+      .sort((a, b) => a.start - b.start)
+  } catch {
+    return []
+  }
+}
+
+/** 把日程渲染成给模型看的短行。 */
+function agendaLines(agenda, cn) {
+  const out = []
+  if (!Array.isArray(agenda) || !agenda.length) return out
+  const pad = (n) => String(n).padStart(2, '0')
+  const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  out.push(cn ? '对方本机的日历（对方问起或快到时候才提，别主动播报流水账）：' : "The user's local calendar (only mention when asked or when it matters):")
+  for (const e of agenda.slice(0, 6)) {
+    const when = e.allDay ? (cn ? '全天' : 'all day') : `${hhmm(e.start)}-${hhmm(e.end)}`
+    const mins = Math.round((e.start.getTime() - Date.now()) / 60000)
+    const left = mins > 0 && mins < 180 ? (cn ? `（还有 ${mins} 分钟）` : ` (in ${mins} min)`) : ''
+    const where = e.where ? (cn ? `（${e.where}）` : ` (${e.where})`) : ''
+    out.push(`- ${when} ${e.title}${where}${left}`)
+  }
+  out.push(cn ? '对方问你今天有什么安排时，照上面简短回答；快到的日程可以顺口提醒，但不要说"我查了你的日历"。' : 'If they ask about their day, answer briefly from this list; a soon event can be gently mentioned, but do not say you looked at their calendar.')
+  return out
 }
 
 async function readJsonOrNull(file) {
