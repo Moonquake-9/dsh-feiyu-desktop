@@ -71,6 +71,7 @@ $script:ActionAskedCount = 0
 $script:ProactiveTimer = $null
 $script:FollowupTimer = $null
 $script:CalTimer = $null
+$script:VDeskTimer = $null
 $script:AppDir = $script:Root
 $script:Launcher = Join-Path $script:Root 'launch.vbs'
 $script:DeskLink = Join-Path ([Environment]::GetFolderPath('Desktop')) '鱼的心情.lnk'
@@ -91,6 +92,7 @@ $script:Settings = [pscustomobject]@{
   autostart     = $true
   proactive     = $true
   proactiveMinutes = 25
+  followVirtualDesktop = $true
   model         = ''
   lang          = 'auto'
 }
@@ -100,7 +102,7 @@ function Read-PetSettings {
     if (-not (Test-Path -LiteralPath $script:SettingsPath)) { return }
     $raw = Get-Content -LiteralPath $script:SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($null -eq $raw) { return }
-    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model', 'lang', 'proactive', 'proactiveMinutes')) {
+    foreach ($k in @('knowWorkspace', 'bubbleSeconds', 'refreshMs', 'autostart', 'model', 'lang', 'proactive', 'proactiveMinutes', 'followVirtualDesktop')) {
       if ($null -ne $raw.$k) { $script:Settings.$k = $raw.$k }
     }
     if ($null -ne $raw.memory) {
@@ -126,6 +128,7 @@ function Save-PetSettings {
     autostart     = [bool]$script:Settings.autostart
     proactive     = [bool]$script:Settings.proactive
     proactiveMinutes = [int]$script:Settings.proactiveMinutes
+    followVirtualDesktop = [bool]$script:Settings.followVirtualDesktop
     model         = [string]$script:Settings.model
     lang          = [string]$script:Settings.lang
   }
@@ -272,6 +275,7 @@ $script:I18N = [ordered]@{
   '轮压缩一次' = 'turns'
   '开机时自动出现' = 'Show up at startup'
   '让她偶尔主动找我' = 'Let her start a conversation now and then'
+  '她跟着我切换虚拟桌面' = 'Follow me across virtual desktops'
   '主动间隔' = 'Every'
   '分钟；安静时不打扰' = 'min (stays quiet when you are busy)'
   '英文界面（English interface）' = 'English interface'
@@ -935,6 +939,7 @@ function Toggle-Panel {
     Place-Panel
     Update-Ui
     $panel.Show()
+    try { Pin-WinToPet $panel } catch { }
   } else {
     $panel.Hide()
   }
@@ -1256,6 +1261,7 @@ function Show-Bubble($text, $seconds = -1) {
   if ($script:BubbleTimer) { $script:BubbleTimer.Stop(); $script:BubbleTimer = $null }
   $script:BubText.Text = [string]$text
   if (-not $script:Bubble.IsVisible) { $script:Bubble.Show() }
+  try { Pin-WinToPet $script:Bubble } catch { }
   BootLog 'bubble: show'
   $script:Bubble.UpdateLayout()
   Place-Bubble
@@ -1373,6 +1379,7 @@ function Toggle-Chat {
   }
   $script:ChatOpen = $true
   $script:Chat.Show()
+  try { Pin-WinToPet $script:Chat } catch { }
   Place-Stacks
   if ($hadBubble) { Start-BubbleGlide $oldX $oldY $script:Bubble.Left $script:Bubble.Top }
   $script:ChatInput.Focus() | Out-Null
@@ -2350,6 +2357,93 @@ $script:PetHidden = $false
 $script:HideOnFullscreen = $true
 $script:LastFgSig = ''
 
+function Ensure-VDesk {
+  if ('VDesk' -as [type]) { return }
+  try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IVirtualDesktopManager {
+  [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, out int onCurrentDesktop);
+  [PreserveSig] int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
+  [PreserveSig] int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
+}
+
+[ComImport, Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A")]
+public class VirtualDesktopManager { }
+
+public static class VDesk {
+  static IVirtualDesktopManager mgr;
+  static IVirtualDesktopManager M { get { if (mgr == null) { mgr = (IVirtualDesktopManager)(new VirtualDesktopManager()); } return mgr; } }
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  public static bool IsOnCurrent(IntPtr h) {
+    try { int v; return M.IsWindowOnCurrentVirtualDesktop(h, out v) == 0 && v != 0; } catch { return true; }
+  }
+  public static Guid DesktopOf(IntPtr h) {
+    try { Guid g; return M.GetWindowDesktopId(h, out g) == 0 ? g : Guid.Empty; } catch { return Guid.Empty; }
+  }
+  public static bool MoveTo(IntPtr h, Guid id) {
+    try { if (id == Guid.Empty) { return false; } return M.MoveWindowToDesktop(h, ref id) == 0; } catch { return false; }
+  }
+  public static bool MoveToDesktopOf(IntPtr h, IntPtr anchor) {
+    Guid g = DesktopOf(anchor); if (g == Guid.Empty) { return false; } return MoveTo(h, g);
+  }
+  public static Guid CurrentDesktop() {
+    try { return DesktopOf(GetForegroundWindow()); } catch { return Guid.Empty; }
+  }
+}
+"@ -ErrorAction Stop | Out-Null
+  } catch { BootLog ('vdesk: interop error ' + $_.Exception.Message); throw }
+}
+
+function Get-WinHandle($win) {
+  try { return ([System.Windows.Interop.WindowInteropHelper]::new($win)).Handle } catch { return [IntPtr]::Zero }
+}
+
+function Pin-WinToPet($win) {
+  try {
+    Ensure-VDesk
+    $ph = Get-WinHandle $pet
+    $wh = Get-WinHandle $win
+    if ($ph -ne [IntPtr]::Zero -and $wh -ne [IntPtr]::Zero) { [void][VDesk]::MoveToDesktopOf($wh, $ph) }
+  } catch { }
+}
+
+function Sync-VDesk {
+  if ($script:Quitting) { return }
+  try {
+    Ensure-VDesk
+    $ph = Get-WinHandle $pet
+    if ($ph -eq [IntPtr]::Zero) { return }
+    if ([VDesk]::IsOnCurrent($ph)) { return }
+    if ([bool]$script:Settings.followVirtualDesktop) {
+      $cur = [VDesk]::CurrentDesktop()
+      if ($cur -ne [Guid]::Empty) {
+        foreach ($w in @($pet, $script:Status, $script:Bubble, $script:Chat, $panel)) {
+          try { [void][VDesk]::MoveTo((Get-WinHandle $w), $cur) } catch { }
+        }
+        BootLog 'vdesk: followed to current desktop'
+      }
+    } else {
+      try { if ($script:Bubble.IsVisible) { $script:Bubble.Hide() } } catch { }
+      try { if ($script:ChatOpen) { Toggle-Chat } } catch { }
+      try { if ($script:PanelOpen) { Toggle-Panel } } catch { }
+      BootLog 'vdesk: not following, companions hidden'
+    }
+  } catch { }
+}
+
+function Start-VDeskTimer {
+  if ($script:VDeskTimer) { return }
+  $script:VDeskTimer = New-Object System.Windows.Threading.DispatcherTimer
+  $script:VDeskTimer.Interval = [TimeSpan]::FromMilliseconds(1200)
+  $script:VDeskTimer.Add_Tick({ try { Sync-VDesk } catch { } })
+  $script:VDeskTimer.Start()
+  BootLog 'vdesk: watcher started'
+}
+
 function Hide-PetAll {
   if ($script:PetHidden) { return }
   $script:PetHidden = $true
@@ -2465,6 +2559,7 @@ $script:PetImg.Add_MouseLeftButtonUp({
 $pet.Add_MouseEnter({
   Update-Ui
   $script:Status.Show()
+  try { Pin-WinToPet $script:Status } catch { }
   $script:Status.UpdateLayout()
   Place-Status
 })
@@ -2534,6 +2629,7 @@ $settingsXaml = @'
         </Grid>
         <TextBlock Text="日历订阅（一行一个：名称|.ics 链接或本地文件；留空 = 不开）" FontFamily="Microsoft YaHei" FontSize="11" Foreground="#8FA6C8" Margin="0,8,0,4"/>
         <TextBox x:Name="CalSource" Height="62" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Microsoft YaHei" FontSize="11" Padding="6,4" Background="#22FFFFFF" BorderBrush="#33FFFFFF" Foreground="#F2F3F5"/>
+      <CheckBox x:Name="OptFollowDesk" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="她跟着我切换虚拟桌面"/>
       <CheckBox x:Name="OptProactive" FontFamily="Microsoft YaHei" FontSize="12.5" Foreground="#E9EFFA" Margin="0,6,0,0" Content="让她偶尔主动找我"/>
       <Grid Margin="0,8,0,0">
         <Grid.ColumnDefinitions>
@@ -2579,6 +2675,7 @@ function New-SettingsWindow {
   $w.FindName('OptAutostart').IsChecked  = [bool]$s.autostart
   $w.FindName('OptEnglish').IsChecked    = [bool]($script:Lang -eq 'en')
   $w.FindName('OptProactive').IsChecked  = [bool]$s.proactive
+  $w.FindName('OptFollowDesk').IsChecked = [bool]$s.followVirtualDesktop
   $w.FindName('NumProactive').Text       = [string]$s.proactiveMinutes
     $calCfg = Read-CalendarConfig
     $w.FindName('OptCalendar').IsChecked = [bool]$calCfg.enabled
@@ -2609,6 +2706,7 @@ function New-SettingsWindow {
     $script:Settings.knowWorkspace        = [bool]$w.FindName('OptWorkspace').IsChecked
     $script:Settings.autostart            = [bool]$w.FindName('OptAutostart').IsChecked
     $script:Settings.proactive            = [bool]$w.FindName('OptProactive').IsChecked
+    $script:Settings.followVirtualDesktop = [bool]$w.FindName('OptFollowDesk').IsChecked
     $script:Settings.proactiveMinutes     = & $toInt $w.FindName('NumProactive').Text 25 3 240
     try {
         Save-CalendarConfig @{
@@ -2644,7 +2742,8 @@ function Show-Settings {
   try { $w.Owner = $pet } catch { }
   $w.Left = $pet.Left + ($pet.Width - $w.Width) / 2
   $w.Top  = [Math]::Max(20, $pet.Top - 360)
-  try { $w.ShowDialog() | Out-Null
+  try { Pin-WinToPet $w } catch { }
+try { $w.ShowDialog() | Out-Null
   } catch {
     BootLog ('settings: dialog error ' + $_.Exception.Message)
   } finally {
@@ -2845,6 +2944,7 @@ $pet.Add_Loaded({
     } catch {
       BootLog ('guard: error ' + $_.Exception.Message)
     }
+    try { Start-VDeskTimer } catch { }
   })
   $script:WarmTimer.Start()
   if ($Say) {
@@ -2864,7 +2964,7 @@ $pet.Add_Loaded({
   }
 })
 
-$pet.Add_Closed({ if ($script:WarmTimer) { $script:WarmTimer.Stop() }; Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
+$pet.Add_Closed({ if ($script:WarmTimer) { $script:WarmTimer.Stop() }; Stop-Tray; $script:Timer.Stop(); if ($script:FgTimer) { $script:FgTimer.Stop() }; if ($script:VDeskTimer) { $script:VDeskTimer.Stop() }; try { Remove-Item $script:PidFile -Force -ErrorAction SilentlyContinue } catch { }; try { if (-not $script:Quitting) { $script:Quitting = $true; [System.Windows.Application]::Current.Shutdown() } } catch { } })
 
 $panel.Add_Closed({ })
 
@@ -3000,6 +3100,7 @@ if ($Render) {
 
     $script:StatusText.Text = ((L '开心') + ' · 70')
     $script:Status.Show()
+    try { Pin-WinToPet $script:Status } catch { }
     Fit-Status
     $sc = $script:Status.Content
     $sc.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
