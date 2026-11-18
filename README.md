@@ -84,14 +84,14 @@ repo and follow the steps below (the zip is just this repo's `widget/` + `bridge
 1. Copy `widget/` somewhere permanent, for example:
 
    ```powershell
-   Copy-Item -Recurse .\widget D:\Desktop\feiyu-desktop
+   Copy-Item -Recurse .\widget C:\apps\feiyu-desktop
    ```
 
 2. Edit `bridge/cordis.patch.yml` so the three paths point at that folder (see below), then add the
    bundle to your DSH profile:
 
    ```powershell
-   dsh plugin --profile desktop add file:D:/Desktop/DSH/dsh-feiyu-bridge
+   dsh plugin --profile desktop add file:C:/path/to/dsh-feiyu-bridge
    ```
 
    (Or: DSH → Settings → Plugins → install a local `file:` bundle.)
@@ -99,7 +99,7 @@ repo and follow the steps below (the zip is just this repo's `widget/` + `bridge
 3. Start her:
 
    ```powershell
-   wscript D:\Desktop\feiyu-desktop\launch.vbs
+   wscript C:\apps\feiyu-desktop\launch.vbs
    ```
 
    Or right-click the tray icon → “开机自启” to make her start with Windows.
@@ -109,9 +109,9 @@ repo and follow the steps below (the zip is just this repo's `widget/` + `bridge
 `bridge/cordis.patch.yml` is the only file that needs editing:
 
 ```yaml
-dir: 'D:/Desktop/feiyu-desktop/bridge'        # where the widget polls for messages
-widgetVbs: 'D:/Desktop/feiyu-desktop/launch.vbs'
-widgetPid: 'D:/Desktop/feiyu-desktop/widget.pid'
+dir: 'C:/apps/feiyu-desktop/bridge'        # where the widget polls for messages
+widgetVbs: 'C:/apps/feiyu-desktop/launch.vbs'
+widgetPid: 'C:/apps/feiyu-desktop/widget.pid'
 ```
 
 Keep `hideInAppWidget: true` if you do not want a second copy of the character inside the DSH window.

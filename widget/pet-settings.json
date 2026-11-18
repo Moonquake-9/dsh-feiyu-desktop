@@ -1,17 +1,17 @@
 {
-    "memory":  {
-                   "enabled":  true,
-                   "keepTurns":  3,
-                   "compressEvery":  8,
-                   "maxPoints":  5,
-                   "warmPoints":  4
-               },
-    "knowWorkspace":  false,
-    "bubbleSeconds":  6,
-    "refreshMs":  1200,
-    "autostart":  true,
-    "proactive":  true,
-    "proactiveMinutes":  25,
-    "model":  "",
-    "lang":  "zh"
+  "memory": {
+    "enabled": true,
+    "keepTurns": 3,
+    "compressEvery": 8,
+    "maxPoints": 5,
+    "warmPoints": 4
+  },
+  "knowWorkspace": false,
+  "bubbleSeconds": 6,
+  "refreshMs": 1200,
+  "autostart": true,
+  "proactive": true,
+  "proactiveMinutes": 25,
+  "model": "",
+  "lang": "zh"
 }

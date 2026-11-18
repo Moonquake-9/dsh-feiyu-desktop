@@ -14,10 +14,10 @@
         maxTokens: 600
         temperature: 0.75
         # 挂件是普通进程、受 DSH 沙箱约束（只能写 workspace），所以桥目录放工作区
-        dir: 'D:/Desktop/DSH/feiyu-desktop/bridge'
+        dir: 'C:/apps/feiyu-desktop/bridge'
         # 桌面挂件接管时，把应用右下角的挂饰藏掉，免得两个形象叠在一起
         hideInAppWidget: true
         # DSH 启动后自动把桌面挂件拉起来（挂件已在跑就跳过）
         autoStartWidget: true
-        widgetVbs: 'D:/Desktop/DSH/feiyu-desktop/launch.vbs'
-        widgetPid: 'D:/Desktop/DSH/feiyu-desktop/widget.pid'
+        widgetVbs: 'C:/apps/feiyu-desktop/launch.vbs'
+        widgetPid: 'C:/apps/feiyu-desktop/widget.pid'

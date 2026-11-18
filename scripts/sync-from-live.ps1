@@ -8,12 +8,16 @@
 # Afterwards open GitHub Desktop, review the diff and push.
 
 param(
-    [string]$WidgetDir = 'D:\Desktop\DSH\feiyu-desktop',
-    [string]$BridgeDir = 'D:\Desktop\DSH\dsh-feiyu-bridge'
+    [string]$WidgetDir = $env:FEIYU_WIDGET_DIR,
+    [string]$BridgeDir = $env:FEIYU_BRIDGE_SRC
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+$parent = Split-Path -Parent $repo
+# Default layout used while developing: the live widget + bridge sit next to this repository.
+if (-not $WidgetDir) { $WidgetDir = Join-Path $parent 'feiyu-desktop' }
+if (-not $BridgeDir) { $BridgeDir = Join-Path $parent 'dsh-feiyu-bridge' }
 $utf8 = New-Object System.Text.UTF8Encoding($false)      # no BOM (git friendly)
 $utf8bom = New-Object System.Text.UTF8Encoding($true)    # PowerShell 5.1 needs the BOM
 
@@ -42,14 +46,22 @@ foreach ($img in 'feiyu.png', 'face-great.png', 'face-good.png', 'face-ok.png', 
 }
 
 Write-Host 'bridge/'
-foreach ($f in 'index.js', 'emotion.js', 'memory.js', 'package.json', 'cordis.patch.yml', 'README.md') {
+foreach ($f in 'index.js', 'emotion.js', 'memory.js', 'package.json', 'README.md') {
     Copy-Text (Join-Path $BridgeDir $f) (Join-Path $repo "bridge\$f")
 }
 
-Write-Host 'docs/'
-foreach ($f in 'preview.png', 'preview-chat2.png', 'preview-settings.png', 'preview-stack.png') {
-    Copy-Binary (Join-Path $WidgetDir $f) (Join-Path $repo "docs\$f")
+# The bundle patch carries machine-specific absolute paths, so scrub them on the way in.
+$patchSrc = Join-Path $BridgeDir 'cordis.patch.yml'
+if (Test-Path -LiteralPath $patchSrc) {
+    $text = [System.IO.File]::ReadAllText($patchSrc, [System.Text.Encoding]::UTF8)
+    $text = $text -replace "`r`n", "`n"
+    $text = $text -replace [regex]::Escape($WidgetDir.Replace('\', '/')), 'C:/apps/feiyu-desktop'
+    $text = $text -replace [regex]::Escape($WidgetDir), 'C:\apps\feiyu-desktop'
+    [System.IO.File]::WriteAllText((Join-Path $repo 'bridge\cordis.patch.yml'), $text, $utf8)
+    Write-Host '  cordis.patch.yml (paths scrubbed)'
 }
+
+# docs/ is curated inside the repository — do not copy the live previews over it.
 
 Write-Host ''
 Write-Host 'Done. Now open GitHub Desktop, review the changes and push.'

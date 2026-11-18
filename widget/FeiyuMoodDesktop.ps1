@@ -761,7 +761,7 @@ function Update-Ui {
       $script:TlPanel.Children.Add($line) | Out-Null
     }
   }
-  $script:Foot.Text = (L '数据：') + $script:StateFile + ' · ' + (Get-Date).ToString('HH:mm:ss')
+  $script:Foot.Text = (L '数据：') + 'feiyu-mood\state.json' + ' · ' + (Get-Date).ToString('HH:mm:ss')
   $script:Body.Children | Out-Null
 }
 

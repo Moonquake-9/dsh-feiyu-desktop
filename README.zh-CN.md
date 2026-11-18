@@ -34,7 +34,7 @@
 不想自己装环境的话，直接去 [Releases](../../releases) 下 `dsh-feiyu-desktop-v1.0.0.zip`（就是本仓库的
 `widget/` + `bridge/` 两个目录打包），解压后按下面的步骤装即可。
 
-1. 把 `widget/` 复制到固定的位置，例如 `D:\Desktop\feiyu-desktop`；
+1. 把 `widget/` 复制到固定的位置，例如 `C:\apps\feiyu-desktop`；
 2. 改 `bridge/cordis.patch.yml` 里的三个路径（`dir` / `widgetVbs` / `widgetPid`）指向该目录，
    然后：
 

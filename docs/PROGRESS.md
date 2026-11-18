@@ -16,17 +16,17 @@
 
 | 用途 | 路径 |
 | --- | --- |
-| 正在运行的挂件（live，改了立刻生效需重启） | `D:\Desktop\DSH\feiyu-desktop\FeiyuMoodDesktop.ps1` |
-| 公开仓库（提交/推送用） | `D:\Desktop\DSH\dsh-feiyu-desktop\` |
-| 聊天桥插件源码 | `D:\Desktop\DSH\dsh-feiyu-bridge\` |
+| 正在运行的挂件（live，改了立刻生效需重启） | `<workspace>\feiyu-desktop\FeiyuMoodDesktop.ps1` |
+| 公开仓库（提交/推送用） | `<workspace>\dsh-feiyu-desktop\` |
+| 聊天桥插件源码 | `<workspace>\dsh-feiyu-bridge\` |
 
-流程：改 live → 跑 `powershell.exe -File D:\Desktop\DSH\dsh-feiyu-desktop\scripts\sync-from-live.ps1`（把 live 拷进仓库）→ 提交 → 用户在 GitHub Desktop 点 **Push origin**（他没有命令行 push 习惯）。
+流程：改 live → 跑 `powershell.exe -File <workspace>\dsh-feiyu-desktop\scripts\sync-from-live.ps1`（把 live 拷进仓库）→ 提交 → 用户在 GitHub Desktop 点 **Push origin**（他没有命令行 push 习惯）。
 
 其它常看的：
 
-- 她的记忆/情绪：`D:\Desktop\DSH\feiyu-desktop\bridge\{memory.json, emotion.json, agenda.json, alive.json, bridge.log}`
-- 设置：`D:\Desktop\DSH\feiyu-desktop\pet-settings.json`；日历源：`calendar.json`（含订阅链接，已 gitignore，别提交）
-- 挂件日志：`D:\Desktop\DSH\feiyu-desktop\_boot.log`（自收敛，>256KB 保留最近 1200 行）
+- 她的记忆/情绪：`<workspace>\feiyu-desktop\bridge\{memory.json, emotion.json, agenda.json, alive.json, bridge.log}`
+- 设置：`<workspace>\feiyu-desktop\pet-settings.json`；日历源：`calendar.json`（含订阅链接，已 gitignore，别提交）
+- 挂件日志：`<workspace>\feiyu-desktop\_boot.log`（自收敛，>256KB 保留最近 1200 行）
 - 版本号：`version.json` 的 `build`，在"她的设置"窗底部和托盘提示里显示 `v1.0.0 · build N`
 
 ## 3. 已经做完的功能（按用户能感知的顺序）
@@ -44,12 +44,12 @@
 
 - **PS 5.1 必须 UTF-8 BOM**。用 edit/write 工具直接改 `.ps1` 会写无 BOM，PowerShell 按 GBK 解析 → 中文乱码 + 语法错误。改完必须用 `[System.IO.File]::WriteAllText($p,$s,(New-Object System.Text.UTF8Encoding($true)))` 存。
 - **`launch.vbs` 必须是纯 ASCII + CRLF + 无 BOM**，否则 `wscript` 弹 800A0408。
-- **别把图标放在 `D:\Desktop\DSH\` 目录里**：该目录被 DSH 沙箱标了低完整性级别 + 拒绝 ACE，Explorer 读不到 ICO，快捷方式会显示白纸。图标统一放 `%LOCALAPPDATA%\FeiyuDesktop\feiyu.ico`（脚本里的 `Ensure-Icon` 会处理）。
+- **别把图标放在 `<workspace>\` 目录里**：该目录被 DSH 沙箱标了低完整性级别 + 拒绝 ACE，Explorer 读不到 ICO，快捷方式会显示白纸。图标统一放 `%LOCALAPPDATA%\FeiyuDesktop\feiyu.ico`（脚本里的 `Ensure-Icon` 会处理）。
 - **`ConvertTo-Json` 会毁掉 `[datetime]`**（写成 `\/Date(...)\/`，读回来变 UTC 当本地）。缓存/输出统一先 `.ToString('s')` 存 ISO 字符串。
-- **桥插件是"安装时复制"**：改了 `D:\Desktop\DSH\dsh-feiyu-bridge\` 的源码不会自动生效，要 `plugin_manager remove_bundle` + `install_bundle file:D:/Desktop/DSH/dsh-feiyu-bridge` 重装一次（Host 热重载，不用重启）。
+- **桥插件是"安装时复制"**：改了 `<workspace>\dsh-feiyu-bridge\` 的源码不会自动生效，要 `plugin_manager remove_bundle` + `install_bundle file:<workspace>/dsh-feiyu-bridge` 重装一次（Host 热重载，不用重启）。
 - **`sync-from-live.ps1` 要用 `powershell.exe -File` 跑**，用 python/node 拉起不会生效。
 - **单实例/看门狗**：桥每 25s 检查 `widget.pid`，进程没了会拉起；但看到 `widget.stopped`（托盘退出写的标记）就跳过。手动 kill 进程调试后，记得删 `widget.lock`/`widget.pid` 再启动。
-- **git 身份**：`user.name=彧川`，`user.email=300153834+Moonquake-9@users.noreply.github.com`（提交时用 `-c` 临时传，不写全局）。不要用真实邮箱。
+- **git 身份**：提交时用 `-c user.name=... -c user.email=<your-github-noreply>@users.noreply.github.com` 临时传，不写全局配置。不要用真实邮箱。
 - 用户看不到命令行，**推送要靠 GitHub Desktop 点 Push origin**；每次提交后要提醒他。
 
 ## 5. 当前待办 / 可选
@@ -63,17 +63,17 @@
 
 ```powershell
 # 1) 语法
-$f='D:\Desktop\DSH\feiyu-desktop\FeiyuMoodDesktop.ps1'
+$f='<workspace>\feiyu-desktop\FeiyuMoodDesktop.ps1'
 $err=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($f,[ref]$null,[ref]$err); "errors=$($err.Count)"
 
 # 2) 离屏渲染（不开窗口，产出 _r.png_pet/_panel/_chat/_bubble/_settings/_status）
-& 'C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe' -NoProfile -ExecutionPolicy Bypass -File $f -Render 'D:\Desktop\DSH\feiyu-desktop\_r.png'
+& 'C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe' -NoProfile -ExecutionPolicy Bypass -File $f -Render '<workspace>\feiyu-desktop\_r.png'
 
 # 3) 重启挂件（先杀再起，删锁）
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*-File*FeiyuMoodDesktop.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Start-Sleep 2; Remove-Item 'D:\Desktop\DSH\feiyu-desktop\widget.lock' -Force -ErrorAction SilentlyContinue
-& wscript.exe 'D:\Desktop\DSH\feiyu-desktop\launch.vbs'
-Get-Content 'D:\Desktop\DSH\feiyu-desktop\_boot.log' -Tail 5
+Start-Sleep 2; Remove-Item '<workspace>\feiyu-desktop\widget.lock' -Force -ErrorAction SilentlyContinue
+& wscript.exe '<workspace>\feiyu-desktop\launch.vbs'
+Get-Content '<workspace>\feiyu-desktop\_boot.log' -Tail 5
 ```
 
 ## 7. 风格约定（用户偏好）
