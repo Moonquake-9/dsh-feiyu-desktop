@@ -14,6 +14,7 @@
         maxTokens: 600
         temperature: 0.75
         # 挂件是普通进程、受 DSH 沙箱约束（只能写 workspace），所以桥目录放工作区
+        # 安装时把 dir / widgetVbs / widgetPid 三行改成你自己的挂件目录（下面是示例路径）
         dir: 'C:/apps/feiyu-desktop/bridge'
         # 桌面挂件接管时，把应用右下角的挂饰藏掉，免得两个形象叠在一起
         hideInAppWidget: true

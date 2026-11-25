@@ -3,6 +3,7 @@ widget/widget.pid
 widget/widget.lock
 widget/window.json
 widget/_boot.log
+widget/proactive-state.json
 widget/bridge/
 widget/feiyu.ico
 *.lnk

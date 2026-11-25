@@ -64,7 +64,11 @@ $script:BubbleTimer = $null
 $script:ReplyId = ''
 $script:LastUserAction = Get-Date
 $script:LastSpokeAt = (Get-Date).AddMinutes(-30)
-$script:LastProactiveLine = ''
+$script:ProactiveRecentMax = 5
+$script:ProactiveCooldownMin = 120
+$script:ProactiveStateFile = Join-Path $script:Root 'proactive-state.json'
+$script:RecentProactiveLines = New-Object System.Collections.ArrayList
+$script:ProactiveSpokenAt = @{}
 $script:ActionAskedKey = ''
 $script:ActionAskedAt = (Get-Date).AddHours(-2)
 $script:ActionAskedCount = 0
@@ -1270,31 +1274,31 @@ function Show-Bubble($text, $seconds = -1) {
 
 # ---------- chat ----------
 $script:Lines = @{
-  idle  = @('嗯？','在看什么呢','要不要休息一下','我在这儿呢','（晃了晃脑袋）')
-  morning   = @('早安呀','今天也要好好过','早餐吃了吗','开工啦')
-  noon      = @('该吃饭了吧','午休一下？','不要饿着自己')
-  afternoon = @('下午也要加油','喝点水吧','休息一下眼睛')
-  evening   = @('晚上好呀','今天辛苦了','忙完就歇歇吧')
-  night     = @('晚上了，别太辛苦','还在忙吗','快去睡觉吧')
-  late      = @('这么晚了还不睡？','敷着着就睡吧','熬夜会变丑的')
-  happy = @('今天心情不错呀','陪我聊两句？','嘿嘿')
-  low   = @('你还好吗','有点累的样子','喝点水吧')
-  sleepy = @('好困…眼睛要睁不开了','让我靠一会儿…','（打了个小哈欠）','困到说不出话了…')
-  clingy = @('你又半天不理我了','在干嘛呀，看看我嘛','我就赖在你桌面上了','点点我嘛')
+  idle  = @('嗯？','在看什么呢','要不要休息一下','我在这儿呢','（晃了晃脑袋）','发会儿呆也挺好的','你忙你的，我看着就行','桌面好像比刚才亮了一点')
+  morning   = @('早安呀','今天也要好好过','早餐吃了吗','开工啦','睡醒啦？先伸个懒腰','早上先喝口水吧','今天想做点什么','别急着进入状态，慢慢来')
+  noon      = @('该吃饭了吧','午休一下？','不要饿着自己','中午了，先放下手头的事','吃完饭再忙也不迟','记得吃点热的','眯十分钟也好','上午辛苦了，下午再说')
+  afternoon = @('下午也要加油','喝点水吧','休息一下眼睛','坐久了，站起来走两步','下午容易犯困，别硬撑','窗外光线不错，看一眼吧','要不要吃点小零食','慢慢来，不用一下子做完')
+  evening   = @('晚上好呀','今天辛苦了','忙完就歇歇吧','晚饭吃了没','天色暗下来了','今天有什么开心的事吗','把灯调亮一点，对眼睛好','晚上就别安排太满啦')
+  night     = @('晚上了，别太辛苦','还在忙吗','快去睡觉吧','夜深了，收个尾就好','明天再做也来得及','眼睛该歇歇了','我陪你到这儿，去睡吧','别熬太晚，我会担心的')
+  late      = @('这么晚了还不睡？','熬夜会变丑的','再不睡，明天真的要顶着黑眼圈了','被窝在等你啦','手机放一边，闭眼试试','我把声音调小了，睡吧','都这个点了，别撑了','明天的事，交给明天的你')
+  happy = @('今天心情不错呀','陪我聊两句？','嘿嘿','今天看你顺眼多了','感觉今天什么都能做好','我尾巴都翘起来了','要不要一起做点开心的事','今天适合偷个懒','想到你就想笑','心情好，连桌面都变亮了')
+  low   = @('你还好吗','有点累的样子','喝点水吧','不想说话也没关系','难受就歇一会儿','我在这儿陪你','别什么都自己扛','慢慢缓过来就好')
+  sleepy = @('好困…眼睛要睁不开了','让我靠一会儿…','（打了个小哈欠）','困到说不出话了…','眼皮好重…','再撑一下下…','（缩成一团）','你也早点睡吧…')
+  clingy = @('你又半天不理我了','在干嘛呀，看看我嘛','我就赖在你桌面上了','点点我嘛','你今天都没怎么看我','忙归忙，偶尔瞅我一眼嘛','我在这儿等你半天了','陪我待一会儿好不好','你一动鼠标，我就以为你要来找我','别把我晾在角落里呀')
 }
 if ($script:Lang -eq 'en') {
   $script:Lines = @{
-    idle   = @('Hm?', 'What are you looking at?', 'Shall we take a break?', 'I am right here', '(tilts her head)')
-    morning   = @('Good morning~', 'Morning! Coffee yet?', 'Let us have a good day')
-    noon      = @('Lunch time?', 'Take a nap?', 'Do not skip lunch')
-    afternoon = @('Keep it up this afternoon', 'Drink some water', 'Rest your eyes for a bit')
-    evening   = @('Good evening', 'Long day, huh', 'Take it easy tonight')
-    night     = @('It is evening already', 'Still busy?', 'Go to bed soon')
-    late      = @('Why are you still up?', 'Sleep already', 'Staying up late is bad for you')
-    happy  = @('Feeling good today~', 'Talk to me for a while?', 'Hehe')
-    low    = @('Are you okay?', 'You look a bit tired', 'Have some water')
-    sleepy = @('So sleepy… my eyes are closing', 'Let me lean on you for a bit…', '(small yawn)', 'Too sleepy to talk…')
-    clingy = @('You ignored me for ages', 'What are you doing? Look at me', 'I am staying on your desktop', 'Poke me already')
+    idle   = @('Hm?', 'What are you looking at?', 'Shall we take a break?', 'I am right here', '(tilts her head)', 'Staring into space is fine too', 'Do your thing — I will watch', 'The desktop looks a little brighter')
+    morning   = @('Good morning~', 'Morning! Coffee yet?', 'Let us have a good day', 'Sleep well? Stretch first', 'Water before anything else', 'What is the plan today?', 'No rush to get going', 'Take it slow this morning')
+    noon      = @('Lunch time?', 'Take a nap?', 'Do not skip lunch', 'Put it down for a bit — it is noon', 'Food first, then work', 'Something warm would be nice', 'Even ten minutes of rest helps', 'You did enough this morning')
+    afternoon = @('Keep it up this afternoon', 'Drink some water', 'Rest your eyes for a bit', 'Stand up and walk around', 'Afternoon slump — do not force it', 'Look out the window for a second', 'Maybe a little snack?', 'No need to finish everything at once')
+    evening   = @('Good evening', 'Long day, huh', 'Take it easy tonight', 'Did you have dinner?', 'The sky is getting dark', 'Anything nice happen today?', 'Turn the light up a bit', 'Do not pack tonight too full')
+    night     = @('It is evening already', 'Still busy?', 'Go to bed soon', 'Wrap it up — it is late', 'Tomorrow is soon enough', 'Give your eyes a rest', 'I will stay till you sleep', 'Do not stay up too long, okay?')
+    late      = @('Why are you still up?', 'Sleep already', 'Staying up late is bad for you', 'It will be morning soon', 'Your bed is waiting', 'Put the phone down and close your eyes', 'I turned my volume down — go sleep', 'Leave tomorrow to tomorrow-you')
+    happy  = @('Feeling good today~', 'Talk to me for a while?', 'Hehe', 'You are extra likable today', 'I feel like I can do anything today', 'My tail is up', 'Want to do something fun?', 'A good day for slacking off', 'I smile when I think of you', 'Even the desktop looks brighter')
+    low    = @('Are you okay?', 'You look a bit tired', 'Have some water', 'You do not have to talk', 'Rest if it feels bad', 'I am here with you', 'Do not carry it all alone', 'It will ease up slowly')
+    sleepy = @('So sleepy… my eyes are closing', 'Let me lean on you for a bit…', '(small yawn)', 'Too sleepy to talk…', 'My eyelids are so heavy…', 'Just a little longer…', '(curls up)', 'You should sleep early too…')
+    clingy = @('You ignored me for ages', 'What are you doing? Look at me', 'I am staying on your desktop', 'Poke me already', 'You barely looked at me today', 'Busy is fine — glance at me sometimes', 'I have been waiting here forever', 'Stay with me for a while?', 'Every time you move the mouse I think you are coming to me', 'Do not leave me in the corner')
   }
 }
 
@@ -1550,13 +1554,109 @@ function Say-IdleLine {
     elseif ($emo.relation -eq 'clingy') { $bag = $script:Lines.clingy }
     elseif ($emo.valence -lt -30) { $bag = $script:Lines.low }
   }
-  $line = $bag | Get-Random
+  $line = Select-ProactiveLine $bag
+  if (-not $line) { $line = Select-ProactiveFallback $bag }
+  if (-not $line) { return }
+  Register-ProactiveLine $line
   Hop
   Show-Bubble $line 5
 }
 
 # ---------- she talks on her own ----------
 function Mark-UserAction { $script:LastUserAction = Get-Date }
+
+# 主动台词防重复：记住最近说过的 5 句；同一句 2 小时内不再说。
+function Test-ProactiveLineFresh([string]$line) {
+  if ([string]::IsNullOrWhiteSpace($line)) { return $false }
+  if ($script:RecentProactiveLines.Contains($line)) { return $false }
+  $t = $script:ProactiveSpokenAt[$line]
+  if ($t -is [DateTime]) {
+    if (((Get-Date) - $t).TotalMinutes -lt $script:ProactiveCooldownMin) { return $false }
+  }
+  return $true
+}
+
+function Select-ProactiveLine($pool) {
+  $cands = @($pool | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  if ($cands.Count -eq 0) { return $null }
+  $fresh = @($cands | Where-Object { Test-ProactiveLineFresh ([string]$_) })
+  if ($fresh.Count -eq 0) { return $null }
+  return [string](@($fresh | Get-Random)[0])
+}
+
+function Select-ProactiveFallback($pool) {
+  # 冷却优先，但双击不能没话说：至少避开最近说过的 5 句
+  $cands = @($pool | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  if ($cands.Count -eq 0) { return $null }
+  $rest = @($cands | Where-Object { -not $script:RecentProactiveLines.Contains([string]$_) })
+  if ($rest.Count -gt 0) { return [string](@($rest | Get-Random)[0]) }
+  $best = $null
+  $bestAt = [DateTime]::MaxValue
+  foreach ($c in $cands) {
+    $t = $script:ProactiveSpokenAt[[string]$c]
+    if (-not ($t -is [DateTime])) { return [string]$c }
+    if ($t -lt $bestAt) { $bestAt = $t; $best = [string]$c }
+  }
+  return $best
+}
+
+function Save-ProactiveState {
+  try {
+    $cut = (Get-Date).AddMinutes(-($script:ProactiveCooldownMin * 4))
+    foreach ($k in @($script:ProactiveSpokenAt.Keys)) {
+      $t = $script:ProactiveSpokenAt[$k]
+      if (-not ($t -is [DateTime]) -or $t -lt $cut) { [void]$script:ProactiveSpokenAt.Remove($k) }
+    }
+    $spoken = [ordered]@{}
+    foreach ($k in @($script:ProactiveSpokenAt.Keys)) {
+      $spoken[[string]$k] = $script:ProactiveSpokenAt[$k].ToString('s')
+    }
+    $obj = [ordered]@{
+      recent = @($script:RecentProactiveLines)
+      spoken = $spoken
+    }
+    $json = $obj | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($script:ProactiveStateFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+  } catch { }
+}
+
+function Read-ProactiveState {
+  try {
+    if (-not (Test-Path -LiteralPath $script:ProactiveStateFile)) { return }
+    $j = Get-Content -LiteralPath $script:ProactiveStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($j -and $j.spoken) {
+      foreach ($p in $j.spoken.PSObject.Properties) {
+        $t = [DateTime]::MinValue
+        if ([DateTime]::TryParse([string]$p.Value, [ref]$t)) {
+          $script:ProactiveSpokenAt[[string]$p.Name] = $t
+        }
+      }
+    }
+    if ($j -and $j.recent) {
+      foreach ($x in @($j.recent)) {
+        $s = [string]$x
+        if ($s -and -not $script:RecentProactiveLines.Contains($s)) {
+          [void]$script:RecentProactiveLines.Add($s)
+        }
+      }
+      while ($script:RecentProactiveLines.Count -gt $script:ProactiveRecentMax) {
+        $script:RecentProactiveLines.RemoveAt(0)
+      }
+    }
+  } catch { }
+}
+
+function Register-ProactiveLine([string]$line) {
+  if ([string]::IsNullOrWhiteSpace($line)) { return }
+  $at = $script:RecentProactiveLines.IndexOf($line)
+  if ($at -ge 0) { $script:RecentProactiveLines.RemoveAt($at) }
+  [void]$script:RecentProactiveLines.Add($line)
+  while ($script:RecentProactiveLines.Count -gt $script:ProactiveRecentMax) {
+    $script:RecentProactiveLines.RemoveAt(0)
+  }
+  $script:ProactiveSpokenAt[$line] = Get-Date
+  Save-ProactiveState
+}
 
 function Get-LastHeartContext {
   $out = @{ tags = @(); user = ''; gapMin = -1 }
@@ -1582,7 +1682,7 @@ function Get-LastHeartContext {
   return $out
 }
 
-function Get-ActionLine([string]$kind, [string]$label) {
+function Get-ActionLine([string]$kind, [string]$label, [switch]$FreshOnly) {
   $en = ($script:Lang -eq 'en')
   $pool = switch ($kind) {
     'meeting' { if ($en) { @('How did the meeting go?', 'Meeting finished? Hope it went well') } else { @('会开完了吗？顺利不顺利？', '会开完了吧？开得怎么样') } }
@@ -1597,6 +1697,7 @@ function Get-ActionLine([string]$kind, [string]$label) {
     'commute' { if ($en) { @('Arrived? Be careful on the road.', 'Reached yet?') } else { @('到了吗？路上小心', '到了没——路上小心') } }
     default   { if ($en) { @(('How is the ' + $label + ' going?'), ('Did the ' + $label + ' work out?')) } else { @(('刚才说去「' + $label + '」，怎么样了？'), ('「' + $label + '」那件事弄完了吗？')) } }
   }
+  if ($FreshOnly) { return (Select-ProactiveLine $pool) }
   return ($pool | Get-Random)
 }
 
@@ -1608,19 +1709,25 @@ function Get-ActionLineIfFresh($ctx) {
     # 同一件事最多问两次，且两次之间至少隔 90 分钟
     if ($script:ActionAskedCount -ge 2) { return $null }
     if (((Get-Date) - $script:ActionAskedAt).TotalMinutes -lt 90) { return $null }
+  }
+  # 只有拿到没在冷却里的句子才记账，免得问不出口还白白消耗次数
+  $line = Get-ActionLine $ctx.actionKind $ctx.actionLabel -FreshOnly
+  if (-not $line) { return $null }
+  if ($script:ActionAskedKey -eq $key) {
     $script:ActionAskedCount++
   } else {
     $script:ActionAskedKey = $key
     $script:ActionAskedCount = 1
   }
   $script:ActionAskedAt = Get-Date
-  return (Get-ActionLine $ctx.actionKind $ctx.actionLabel)
+  return $line
 }
 
 function Get-ProactiveLine {
   $en = ($script:Lang -eq 'en')
   $h = (Get-Date).Hour
   $emo = Get-Emotion
+  $snap = Get-MoodSnapshot
   $idle = ((Get-Date) - $script:LastUserAction).TotalMinutes
   $ctx = Get-LastHeartContext
   $tags = @($ctx.tags)
@@ -1629,45 +1736,41 @@ function Get-ProactiveLine {
   if ($act) { return $act }
   # 1) 接着刚才的话说：这是最像“真人”的部分
   if ($ctx.gapMin -ge 0 -and $ctx.gapMin -le 120 -and $tags.Count -gt 0) {
-    if ($tags -contains 'tired') { if ($en) { return 'You said you were tired — did you actually lie down?' } return '刚才说累，去躺会儿了吗？' }
-    if ($tags -contains 'sad') { if ($en) { return 'You sounded down earlier. Feeling any better?' } return '刚才好像不太开心，现在好点没？' }
-    if ($tags -contains 'busy') { if ($en) { return 'Still busy? Not to interrupt.' } return '忙完了没？我不吵你，就问一句' }
-    if ($tags -contains 'affection' -or $tags -contains 'praise') { if ($en) { return 'I am still thinking about what you said.' } return '刚才那句我可记着了' }
+    foreach ($tag in @('tired', 'sad', 'busy', 'affection', 'praise')) {
+      if ($tags -notcontains $tag) { continue }
+      $pool = switch ($tag) {
+        'tired' { if ($en) { @('You said you were tired — did you actually lie down?', 'If you are tired, rest a bit — do not push through', 'I will keep quiet while you rest') } else { @('刚才说累，去躺会儿了吗？', '累了就靠一会儿，别硬撑', '你歇着，我不吵你') } }
+        'sad' { if ($en) { @('You sounded down earlier. Feeling any better?', 'If you are sad, I can stay with you a while', 'You do not have to talk — I am here') } else { @('刚才好像不太开心，现在好点没？', '不开心的话，我陪你待会儿', '不想说也没关系，我在呢') } }
+        'busy' { if ($en) { @('Still busy? Not to interrupt.', 'Still at it? Remember to breathe', 'Take a break when this part is done') } else { @('忙完了没？我不吵你，就问一句', '还忙着呀？记得喘口气', '忙完这阵就歇一下') } }
+        default { if ($en) { @('What you said made me a little shy', 'Hehe, now I am embarrassed', 'You are making my tail curl up') } else { @('你刚才那么说，我到现在还有点不好意思', '嘿嘿，你夸得我都不好意思了', '被你夸得尾巴都翘起来了') } }
+      }
+      $line = Select-ProactiveLine $pool
+      if ($line) { return $line }
+    }
   }
   # 2) 深夜劝睡
   if (($h -ge 23 -or $h -lt 5) -and $idle -ge 12) {
-    $pool = if ($en) { @('Still up? It is really late', 'Go to sleep, I will be here tomorrow', 'If you stay up any longer, tomorrow is ruined') } else { @('还不睡？都这个点了', '该睡了，我明天还在的', '再熬下去明天又要困一整天') }
-    return ($pool | Get-Random)
+    $pool = if ($en) { @('Still up? It is really late', 'Go to sleep, I will be here tomorrow', 'If you stay up any longer, tomorrow is ruined', 'It will be morning soon', 'Your bed is waiting', 'Put the phone down and close your eyes', 'I turned my volume down — go sleep', 'It is really late now', 'Leave tomorrow to tomorrow-you') } else { @('还不睡？都这个点了', '该睡了，我明天还在的', '再熬下去明天又要困一整天', '再熬下去天都要亮了', '被窝在等你啦', '手机放一边，闭眼试试', '我把声音调小了，睡吧', '都这个点了，别撑了', '明天的事，交给明天的你') }
+    $line = Select-ProactiveLine $pool
+    if ($line) { return $line }
   }
-  # 3) 黏人：被冷落时主动讨关注
+  # 3) 心情很好：今天值得夸一夸
+  if ($emo.updatedAt -gt 0 -and $snap.mood -ge 75 -and $emo.valence -ge 40 -and $idle -ge 15) {
+    $line = Select-ProactiveLine $script:Lines.happy
+    if ($line) { return $line }
+  }
+  # 4) 黏人：被冷落时主动讨关注
   if ($emo.updatedAt -gt 0 -and $emo.relation -eq 'clingy' -and $idle -ge 40) {
-    $pool = if ($en) { @('You have ignored me for ages', 'Hey, look at me for a second', 'I have been sitting here the whole time') } else { @('你又半天不理我了', '喂，看看我嘛', '我在这儿坐了半天了') }
-    return ($pool | Get-Random)
+    $line = Select-ProactiveLine $script:Lines.clingy
+    if ($line) { return $line }
   }
-  # 4) 时段
+  # 5) 时段
   $bag = Get-TimeBagKey
-  if ($bag -eq 'morning') {
-    $pool = if ($en) { @('Morning — sleep okay?', 'Drink some water first', 'What are we doing today?') } else { @('早呀，昨晚睡得怎么样', '起来先喝点水', '今天想先干哪件事') }
-    return ($pool | Get-Random)
-  }
-  if ($bag -eq 'noon') {
-    $pool = if ($en) { @('Lunch time, do not skip it', 'Rest ten minutes after eating') } else { @('该吃饭了，别拖', '吃完饭歇十分钟') }
-    return ($pool | Get-Random)
-  }
-  if ($bag -eq 'afternoon') {
-    $pool = if ($en) { @('Afternoon slump — stand up for a bit', 'Give your eyes a break') } else { @('下午了，站起来走两步', '眼睛歇会儿吧') }
-    return ($pool | Get-Random)
-  }
-  if ($bag -eq 'evening') {
-    $pool = if ($en) { @('Long day. You did well', 'Did you eat dinner?') } else { @('今天忙了一天，辛苦了', '晚饭吃了没') }
-    return ($pool | Get-Random)
-  }
-  if ($bag -eq 'night') {
-    $pool = if ($en) { @('Wrapping up soon?', 'Time to wind down') } else { @('快收尾了，准备睡觉吧', '该收工啦') }
-    return ($pool | Get-Random)
-  }
-  if ($en) { return (@('What are you thinking about?', 'It is quiet here', 'Talk to me for a bit?') | Get-Random) }
-  return (@('在想什么呢', '有点安静呀', '要不要聊两句') | Get-Random)
+  $line = Select-ProactiveLine $script:Lines[$bag]
+  if ($line) { return $line }
+  # 6) 兜底
+  $pool = if ($en) { @('What are you thinking about?', 'It is quiet here', 'Talk to me for a bit?', 'What are you up to?', 'I am just spacing out here', 'So quiet on this desktop', 'Say something?', 'How was your day?') } else { @('在想什么呢', '有点安静呀', '要不要聊两句', '你在忙什么呀', '我在这儿发呆', '桌面好安静', '说句话嘛', '今天过得怎么样') }
+  return (Select-ProactiveLine $pool)
 }
 
 function Get-FollowupLine {
@@ -1676,12 +1779,21 @@ function Get-FollowupLine {
   $tags = @($ctx.tags)
   $act = Get-ActionLineIfFresh $ctx
   if ($act) { return $act }
-  if ($tags -contains 'tired') { if ($en) { return 'Did you manage to rest a bit?' } return '刚才说累，躺下歇了没？' }
-  if ($tags -contains 'sad') { if ($en) { return 'I am still here if you want to talk.' } return '不想说话也没关系，我在的' }
-  if ($tags -contains 'busy') { if ($en) { return 'Finished what you were doing?' } return '忙完了吗？' }
-  if ($tags -contains 'affection' -or $tags -contains 'praise') { if ($en) { return 'Still smiling because of what you said.' } return '还在想你刚才那句话' }
-  if ($en) { return (@('Still there?', 'What are you up to?', 'Need a break?') | Get-Random) }
-  return (@('还在吗？', '在忙什么呢', '要不要歇一下') | Get-Random)
+  if ($tags.Count -gt 0) {
+    foreach ($tag in @('tired', 'sad', 'busy', 'affection', 'praise')) {
+      if ($tags -notcontains $tag) { continue }
+      $pool = switch ($tag) {
+        'tired' { if ($en) { @('Did you manage to rest a bit?', 'If you are still tired, do not push it', 'I will wait until you have rested') } else { @('刚才说累，躺下歇了没？', '要是还累，就别硬撑了', '歇够了再忙，我等你') } }
+        'sad' { if ($en) { @('I am still here if you want to talk.', 'Feeling a little better now?', 'If it hurts, I can sit with you quietly') } else { @('不想说话也没关系，我在的', '现在心情好点了吗', '难受的话，我陪你安静待会儿') } }
+        'busy' { if ($en) { @('Finished what you were doing?', 'Stretch when you are done', 'Do not forget water while you are busy') } else { @('忙完了吗？', '忙完记得伸个懒腰', '别一忙就忘了喝水') } }
+        default { if ($en) { @('I am still in a good mood from that', 'You are making me float', 'Say more of that next time') } else { @('嘿嘿，我现在心情还很好', '被你夸得有点飘了', '下次再多说一点嘛') } }
+      }
+      $line = Select-ProactiveLine $pool
+      if ($line) { return $line }
+    }
+  }
+  $pool = if ($en) { @('Still there?', 'What are you up to?', 'Need a break?', 'I am here if you need me', 'Do not work too long', 'The desktop feels quiet', 'Say something when you can', 'How is it going?') } else { @('还在吗？', '在忙什么呢', '要不要歇一下', '需要我就喊我', '别忙太久啦', '桌面有点安静', '有空就说句话', '进展怎么样啦') }
+  return (Select-ProactiveLine $pool)
 }
 
 function Should-StayQuiet {
@@ -1698,9 +1810,11 @@ function Speak-Proactive {
   if (Should-StayQuiet) { return }
   if (-not $ProactiveTest -and ((Get-Date) - $script:LastSpokeAt).TotalMinutes -lt 2.5) { return }
   $line = Get-ProactiveLine
-  if (-not $line) { return }
-  if ($line -eq $script:LastProactiveLine) { $line = Get-ProactiveLine }
-  $script:LastProactiveLine = $line
+  if (-not $line) {
+    BootLog 'proactive: skipped (all candidate lines cooling down)'
+    return
+  }
+  Register-ProactiveLine $line
   Hop
   Show-Bubble $line 7
   $script:LastSpokeAt = Get-Date
@@ -1745,6 +1859,7 @@ function Schedule-Followup {
     if (Should-StayQuiet) { return }
     $line = Get-FollowupLine
     if (-not $line) { return }
+    Register-ProactiveLine $line
     Hop
     Show-Bubble $line 8
     $script:LastSpokeAt = Get-Date
@@ -2926,6 +3041,7 @@ $pet.Add_Loaded({
   $script:Timer.Start()
     Say-GreetingOnStart
     try { Start-Calendar } catch { BootLog ('calendar: start error ' + $_.Exception.Message) }
+  try { Read-ProactiveState } catch { BootLog ('proactive: state load error ' + $_.Exception.Message) }
   Start-Proactive
   # Heavy startup bits run right after the first paint: the pet is on screen sooner,
   # which keeps the language-switch restart short.

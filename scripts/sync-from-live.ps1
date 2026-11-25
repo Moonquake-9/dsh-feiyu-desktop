@@ -1,4 +1,4 @@
-# Sync the live working copies into this repository.
+﻿# Sync the live working copies into this repository.
 #
 #   pwsh -File scripts\sync-from-live.ps1
 #
@@ -57,8 +57,14 @@ if (Test-Path -LiteralPath $patchSrc) {
     $text = $text -replace "`r`n", "`n"
     $text = $text -replace [regex]::Escape($WidgetDir.Replace('\', '/')), 'C:/apps/feiyu-desktop'
     $text = $text -replace [regex]::Escape($WidgetDir), 'C:\apps\feiyu-desktop'
+    # Keep the three paths visible (the bridge needs them) but make it obvious to a first-time
+    # installer that they point at a sample folder and must be edited.
+    $note = '# 安装时把 dir / widgetVbs / widgetPid 三行改成你自己的挂件目录（下面是示例路径）'
+    if ($text -notmatch [regex]::Escape($note)) {
+        $text = $text -replace '(?m)^(\s*)(dir:\s*''[^'']*''\s*)$', ('$1' + $note + "`n" + '$1$2')
+    }
     [System.IO.File]::WriteAllText((Join-Path $repo 'bridge\cordis.patch.yml'), $text, $utf8)
-    Write-Host '  cordis.patch.yml (paths scrubbed)'
+    Write-Host '  cordis.patch.yml (paths scrubbed, install note added)'
 }
 
 # docs/ is curated inside the repository — do not copy the live previews over it.
